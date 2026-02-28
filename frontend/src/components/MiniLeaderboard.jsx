@@ -32,7 +32,7 @@ export default function MiniLeaderboard() {
             <div className="space-y-1">
                 {entries.map((e, i) => {
                     const name = e.user?.name || e.name;
-                    const uid = e.user?._id || e._id;
+                    const uid = e.userId || e.user?._id || e._id;
                     const isMe = uid === user?._id;
                     return (
                         <div key={uid || i} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors ${

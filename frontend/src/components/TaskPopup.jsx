@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Play, Coffee, Brain, FileText, CheckCircle, Timer, Zap } from 'lucide-react';
+import { X, Play, Coffee, Brain, FileText, CheckCircle, Timer, Zap, RotateCcw } from 'lucide-react';
 import { formatTime, playAlertSound } from '../utils/helpers';
 import QuizModal from './QuizModal';
 import TheoryUpload from './TheoryUpload';
+import api from '../api/axios';
 
 const PHASES = { IDLE: 'idle', STUDY: 'study', BREAK: 'break', QUIZ: 'quiz', THEORY: 'theory', DONE: 'done' };
 const BREAK_SEC = 300;
@@ -18,7 +19,13 @@ export default function TaskPopup({ task, onClose }) {
     const [studyLeft, setStudyLeft] = useState(Math.round(task.durationHours * 3600));
     const [breakLeft, setBreakLeft] = useState(BREAK_SEC);
     const [running, setRunning] = useState(false);
+    const [attemptInfo, setAttemptInfo] = useState(null);
     const intervalRef = useRef(null);
+
+    // Fetch attempt info on mount
+    useEffect(() => {
+        api.get(`/quiz/${task._id}/attempt-info`).then((r) => setAttemptInfo(r.data.data)).catch(() => {});
+    }, [task._id]);
 
     useEffect(() => {
         if (!running) return;
@@ -77,8 +84,28 @@ export default function TaskPopup({ task, onClose }) {
                 {phase === PHASES.IDLE && (
                     <div>
                         {task.description && <p className="text-sm text-slate-400 mb-4 leading-relaxed">{task.description}</p>}
+
+                        {/* Re-attempt info */}
+                        {attemptInfo && attemptInfo.totalAttempts > 0 && (
+                            <div className="mb-4 p-3 rounded-xl border border-amber-500/10" style={{ background: 'rgba(251,191,36,0.04)' }}>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <RotateCcw size={13} className="text-amber-400" />
+                                    <span className="text-xs font-semibold text-amber-400">Re-attempt #{attemptInfo.nextAttemptNumber}</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 mb-1">
+                                    Previous attempts: {attemptInfo.totalAttempts} • Best score: {
+                                        Math.max(...(attemptInfo.history || []).map(h => h.score ?? 0))
+                                    }/12
+                                </p>
+                                <p className="text-[11px] text-slate-400">
+                                    Stake decays: <span className="text-white font-mono">{task.tokenStake}</span> → <span className="text-amber-300 font-mono">{attemptInfo.nextStake}</span> tokens
+                                    <span className="text-slate-600 ml-1">({Math.round(Math.pow(0.6, attemptInfo.nextAttemptNumber - 1) * 100)}%)</span>
+                                </p>
+                            </div>
+                        )}
+
                         <button onClick={start} className="w-full py-3 rounded-xl btn-primary text-sm flex items-center justify-center gap-2 cursor-pointer">
-                            <Play size={16} /> Start Studying
+                            <Play size={16} /> {attemptInfo?.totalAttempts > 0 ? `Re-attempt (${attemptInfo.nextStake} tokens)` : 'Start Studying'}
                         </button>
                     </div>
                 )}

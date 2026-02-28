@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
-import { User, Flame, Trophy, BookOpen, BarChart3, Clock, Award, FileText, ExternalLink } from 'lucide-react';
-import PeerReviewCard from '../components/PeerReviewCard';
+import { User, Flame, Trophy, BookOpen, BarChart3, Clock, Award, FileText, ExternalLink, RotateCcw } from 'lucide-react';
 
 export default function ProfilePage() {
     const { userId } = useParams();
@@ -12,26 +11,36 @@ export default function ProfilePage() {
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    const isSelf = !userId || userId === me?._id;
+    const isSelf = !userId || userId === me?._id || userId === me?.id;
 
     useEffect(() => {
+        let cancelled = false;
         const load = async () => {
             setLoading(true);
             try {
                 if (isSelf) {
-                    setProfile(me);
-                    const r = await api.get('/tasks/submissions');
-                    setSubmissions(r.data.data || []);
+                    // Always fetch fresh from API — don't rely on auth context timing
+                    const [meRes, subRes] = await Promise.all([
+                        api.get('/auth/me'),
+                        api.get('/tasks/submissions'),
+                    ]);
+                    if (cancelled) return;
+                    setProfile(meRes.data.data);
+                    setSubmissions(subRes.data.data || []);
                 } else {
                     const r = await api.get(`/users/${userId}/profile`);
+                    if (cancelled) return;
                     setProfile(r.data.data?.user || r.data.data);
                     setSubmissions(r.data.data?.submissions || []);
                 }
-            } catch { }
-            setLoading(false);
+            } catch (err) {
+                console.error('Profile load error:', err);
+            }
+            if (!cancelled) setLoading(false);
         };
         load();
-    }, [userId, me]);
+        return () => { cancelled = true; };
+    }, [userId, isSelf]);
 
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center" style={{ background: '#050507' }}>
@@ -86,7 +95,7 @@ export default function ProfilePage() {
                 {/* Submissions */}
                 <div className="surface rounded-2xl p-5">
                     <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                        <FileText size={14} className="text-slate-400" /> Submissions
+                        <FileText size={14} className="text-slate-400" /> Quiz Attempts & Submissions
                     </h2>
                     {submissions.length === 0 ? (
                         <p className="text-sm text-slate-500 text-center py-8">No submissions yet</p>
@@ -98,32 +107,40 @@ export default function ProfilePage() {
                                     <div className="flex items-start justify-between mb-2">
                                         <div>
                                             <p className="text-sm font-medium text-white">{sub.task?.title || 'Task'}</p>
-                                            <p className="text-xs text-slate-500">{sub.task?.course?.courseCode}</p>
+                                            <p className="text-xs text-slate-500">{sub.course?.courseCode}</p>
                                         </div>
                                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
-                                            sub.aiGrading?.status === 'graded' ? 'bg-emerald-500/10 text-emerald-400'
-                                            : sub.aiGrading?.status === 'failed' ? 'bg-red-500/10 text-red-400'
+                                            sub.mcqPassed ? 'bg-emerald-500/10 text-emerald-400'
+                                            : sub.status === 'failed' ? 'bg-red-500/10 text-red-400'
                                             : 'bg-amber-500/10 text-amber-400'
                                         }`}>
-                                            {sub.aiGrading?.status || 'pending'}
+                                            {sub.mcqPassed ? 'passed' : sub.status}
                                         </span>
                                     </div>
-                                    {sub.aiGrading?.status === 'graded' && (
-                                        <p className="text-xs text-slate-400 mb-2">
-                                            Score: <span className="text-white font-semibold">{sub.aiGrading.totalScore}/{sub.aiGrading.maxScore}</span>
-                                        </p>
-                                    )}
-                                    {sub.pdf?.storedPath && (
-                                        <a href={`/${sub.pdf.storedPath}`} target="_blank" rel="noreferrer"
+                                    <div className="flex items-center gap-3 text-xs text-slate-400 mb-2">
+                                        <span>MCQ: <span className="text-white font-semibold">{sub.mcqScore ?? '—'}/12</span></span>
+                                        {sub.attemptNumber > 1 && (
+                                            <span className="flex items-center gap-1 text-amber-400">
+                                                <RotateCcw size={10} /> Attempt #{sub.attemptNumber}
+                                            </span>
+                                        )}
+                                        {sub.effectiveStake != null && (
+                                            <span className="text-slate-500">Stake: {sub.effectiveStake}</span>
+                                        )}
+                                        {sub.tokensAwarded != null && (
+                                            <span className={sub.tokensAwarded > 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                                {sub.tokensAwarded > 0 ? `+${sub.tokensAwarded}` : sub.tokensAwarded}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {sub.theorySubmissionPath && (
+                                        <a href={`/${sub.theorySubmissionPath}`} target="_blank" rel="noreferrer"
                                             className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1">
-                                            <ExternalLink size={11} /> View PDF
+                                            <ExternalLink size={11} /> View Theory PDF
                                         </a>
                                     )}
-                                    {/* Peer Review for other's profile */}
-                                    {!isSelf && sub.peerReview && (
-                                        <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                                            <PeerReviewCard submission={sub} />
-                                        </div>
+                                    {sub.createdAt && (
+                                        <p className="text-[10px] text-slate-600 mt-1">{new Date(sub.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                                     )}
                                 </div>
                             ))}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
-import { Trophy, Medal, Crown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Trophy, Medal, Crown, ChevronLeft, ChevronRight, Brain } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function LeaderboardPage() {
@@ -75,9 +75,14 @@ export default function LeaderboardPage() {
 
                 {/* Table */}
                 <div className="surface rounded-2xl overflow-hidden">
-                    <div className="grid grid-cols-[3rem_1fr_auto_auto] items-center px-4 py-3 border-b border-white/[0.04]">
+                    <div className={`grid items-center px-4 py-3 border-b border-white/[0.04] ${tab === 'course' ? 'grid-cols-[3rem_1fr_auto_auto_auto]' : 'grid-cols-[3rem_1fr_auto_auto]'}`}>
                         <span className="text-[10px] font-semibold text-slate-600 uppercase">#</span>
                         <span className="text-[10px] font-semibold text-slate-600 uppercase">Student</span>
+                        {tab === 'course' && (
+                            <span className="text-[10px] font-semibold text-slate-600 uppercase text-right pr-4 flex items-center gap-1 justify-end">
+                                <Brain size={10} className="text-violet-400" /> Proficiency
+                            </span>
+                        )}
                         <span className="text-[10px] font-semibold text-slate-600 uppercase text-right pr-4">Tokens</span>
                         <span className="text-[10px] font-semibold text-slate-600 uppercase text-right">Rep</span>
                     </div>
@@ -87,19 +92,24 @@ export default function LeaderboardPage() {
                         <p className="text-center text-sm text-slate-500 py-12">No entries</p>
                     ) : (
                         data.map((entry, i) => {
-                            const isMe = entry.user?._id === user?._id || entry._id === user?._id;
+                            const uid = entry.userId || entry.user?._id || entry._id;
+                            const isMe = uid === user?._id;
                             const name = entry.user?.name || entry.name;
-                            const userId = entry.user?._id || entry._id;
                             return (
-                                <div key={userId || i}
-                                    className={`grid grid-cols-[3rem_1fr_auto_auto] items-center px-4 py-3 border-b border-white/[0.02] transition-colors ${
+                                <div key={uid || i}
+                                    className={`grid items-center px-4 py-3 border-b border-white/[0.02] transition-colors ${tab === 'course' ? 'grid-cols-[3rem_1fr_auto_auto_auto]' : 'grid-cols-[3rem_1fr_auto_auto]'} ${
                                         isMe ? 'bg-sky-500/[0.04]' : 'hover:bg-white/[0.02]'
                                     }`}>
                                     <div className="flex items-center justify-center">{rankIcon(i)}</div>
-                                    <button onClick={() => navigate(`/profile/${userId}`)}
+                                    <button onClick={() => navigate(`/profile/${uid}`)}
                                         className={`text-sm font-medium text-left cursor-pointer hover:underline ${isMe ? 'text-sky-400' : 'text-slate-300'}`}>
                                         {name} {isMe && <span className="text-[10px] text-sky-500">(you)</span>}
                                     </button>
+                                    {tab === 'course' && (
+                                        <span className="text-sm font-bold text-right pr-4 bg-gradient-to-r from-violet-400 to-pink-400 bg-clip-text text-transparent">
+                                            {entry.proficiencyScore ?? 0}
+                                        </span>
+                                    )}
                                     <span className="text-sm font-semibold text-white text-right pr-4">{entry.tokens ?? entry.tokenBalance}</span>
                                     <span className="text-sm text-slate-400 text-right">{entry.reputation ?? '-'}</span>
                                 </div>

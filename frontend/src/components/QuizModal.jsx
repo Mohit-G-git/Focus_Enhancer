@@ -93,6 +93,9 @@ export default function QuizModal({ task, onDone, onClose }) {
                     </div>
                     <h2 className="text-xl font-bold text-white mb-1">{passed ? 'Quiz Passed! 🎉' : 'Not Quite'}</h2>
                     <p className="text-sm text-slate-400 mb-1">Score: <span className="text-white font-bold">{result?.score}/{result?.maxScore || 12}</span></p>
+                    {result?.attemptNumber > 1 && (
+                        <p className="text-[10px] text-slate-500 mb-1">Attempt #{result.attemptNumber}</p>
+                    )}
                     {result?.tokensAwarded != null && (
                         <p className={`text-xs mb-3 ${result.tokensAwarded > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {result.tokensAwarded > 0 ? `+${result.tokensAwarded} tokens earned!` : `Stake forfeited`}
@@ -104,11 +107,14 @@ export default function QuizModal({ task, onDone, onClose }) {
                             Continue to Theory →
                         </button>
                     ) : (
-                        <button onClick={onClose}
-                            className="px-6 py-2.5 rounded-xl text-sm cursor-pointer"
-                            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
-                            Back to Tasks
-                        </button>
+                        <div className="space-y-2">
+                            <p className="text-[10px] text-slate-500 mb-1">You can re-attempt with reduced stake</p>
+                            <button onClick={onClose}
+                                className="px-6 py-2.5 rounded-xl text-sm cursor-pointer"
+                                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
+                                Back to Tasks
+                            </button>
+                        </div>
                     )}
                 </div>
             </div>

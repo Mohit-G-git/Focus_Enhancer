@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { startQuiz, answerQuestion, getMCQResult, getTheoryQuestions, submitTheory } from '../controllers/quizController.js';
+import { startQuiz, answerQuestion, getMCQResult, getTheoryQuestions, submitTheory, getAttemptInfo } from '../controllers/quizController.js';
 import { answerRules, validate } from '../middleware/validate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,6 +17,7 @@ const upload = multer({
     limits: { fileSize: 20 * 1024 * 1024 },
 });
 
+router.get('/:taskId/attempt-info', getAttemptInfo);
 router.post('/:taskId/start', startQuiz);
 router.post('/:taskId/answer', answerRules, validate, answerQuestion);
 router.get('/:taskId/mcq-result', getMCQResult);
