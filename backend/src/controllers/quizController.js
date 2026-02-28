@@ -22,6 +22,14 @@ export const startQuiz = async (req, res) => {
         const task = await Task.findById(taskId).populate('course');
         if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
+        // Reject if the task has been superseded by a newer announcement
+        if (task.status === 'superseded') {
+            return res.status(409).json({
+                success: false,
+                message: 'This task has been superseded by a newer announcement. Check your updated tasks.',
+            });
+        }
+
         const existing = await QuizAttempt.findOne({ user: userId, task: taskId });
         if (existing) {
             return res.status(400).json({
@@ -39,7 +47,14 @@ export const startQuiz = async (req, res) => {
             });
         }
 
-        // Deduct stake
+        // Generate unique MCQs FIRST (before deducting stake)
+        // If Gemini fails, the user doesn't lose tokens
+        const mcqs = await generateMCQs({
+            taskTitle: task.title, taskTopic: task.topic,
+            courseName: task.course.title, bookPdfPath: task.course.bookPdfPath,
+        });
+
+        // Deduct stake only after MCQs are successfully generated
         user.tokenBalance -= task.tokenStake;
         await TokenLedger.create({
             userId: user._id, taskId: task._id, type: 'stake',
@@ -47,12 +62,6 @@ export const startQuiz = async (req, res) => {
             note: `Staked ${task.tokenStake} tokens for: "${task.title}"`,
         });
         await user.save();
-
-        // Generate unique MCQs
-        const mcqs = await generateMCQs({
-            taskTitle: task.title, taskTopic: task.topic,
-            courseName: task.course.title, bookPdfPath: task.course.bookPdfPath,
-        });
 
         const attempt = await QuizAttempt.create({
             user: userId, task: taskId, course: task.course._id, mcqs, mcqStartedAt: new Date(),

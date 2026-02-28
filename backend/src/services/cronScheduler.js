@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { runWeeklyFallbackCheck, runSundayRevision } from './fallbackTaskGenerator.js';
 import { runTokenDecay } from './tokenDecay.js';
+import { runToleranceDecay } from './toleranceService.js';
 
 /**
  * ============================================================
@@ -65,6 +66,19 @@ export function startCronJobs() {
         }
     });
     console.log('  📅 Cron: Token decay → Every 3 days at midnight');
+
+    // ── Tolerance Decay: Every day at 1:00 AM ────────────────────
+    // Checks every user's absence duration vs their tolerance cap.
+    // Users past their grace period lose tokens at an accelerating rate.
+    cron.schedule('0 1 * * *', async () => {
+        console.log(`\n⏰ [CRON] Tolerance decay — ${new Date().toISOString()}`);
+        try {
+            await runToleranceDecay();
+        } catch (err) {
+            console.error(`❌ [CRON] Tolerance decay failed: ${err.message}`);
+        }
+    });
+    console.log('  📅 Cron: Tolerance decay → Every day 1:00 AM');
 
     console.log('  ✅ All cron jobs scheduled.\n');
 }

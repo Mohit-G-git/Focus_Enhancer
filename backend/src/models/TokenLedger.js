@@ -15,7 +15,7 @@ const TokenLedgerSchema = new mongoose.Schema(
         },
         type: {
             type: String,
-            enum: ['stake', 'reward', 'penalty', 'bonus', 'initial', 'peer_wager', 'peer_reward', 'peer_penalty'],
+            enum: ['stake', 'reward', 'penalty', 'bonus', 'initial', 'peer_wager', 'peer_reward', 'peer_penalty', 'tolerance_bleed'],
             required: true,
         },
         amount: { type: Number, required: true },

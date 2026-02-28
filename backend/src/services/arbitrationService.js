@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { generateContent, parseJSON } from './geminiClient.js';
 
 /* ================================================================
    AI ARBITRATION SERVICE — Peer Review Dispute Resolution
@@ -15,39 +15,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
    It returns a structured verdict:
      { decision, reasoning, confidence }
    ================================================================ */
-
-const GEMINI_MODELS = [
-    process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-flash-latest',
-];
-
-/**
- * Call Gemini with cascading model fallback.
- */
-async function callGemini(prompt) {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    let lastErr;
-    for (const model of GEMINI_MODELS) {
-        try {
-            const r = await genAI.getGenerativeModel({ model }).generateContent(prompt);
-            console.log(`✅ Arbitration model: ${model}`);
-            return r.response.text();
-        } catch (err) {
-            if (err.message?.includes('429') || err.message?.includes('quota')) {
-                console.warn(`⚠️  ${model} quota exceeded`);
-                lastErr = err;
-                continue;
-            }
-            throw err;
-        }
-    }
-    throw new Error(`All models quota-limited. ${lastErr?.message}`);
-}
-
-function parseJSON(raw) {
-    return JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim());
-}
 
 /**
  * Arbitrate a peer review dispute.
@@ -108,7 +75,7 @@ Output ONLY a JSON object:
   "confidence": 0.0 to 1.0
 }`;
 
-    const raw = await callGemini(prompt);
+    const raw = await generateContent(prompt, 'Arbitration');
     const verdict = parseJSON(raw);
 
     // Validate structure

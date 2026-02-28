@@ -82,6 +82,12 @@ const UserSchema = new mongoose.Schema(
             reviewsGiven: { type: Number, default: 0 },
         },
 
+        // ── Tolerance (absence protection) ────────────────────────
+        tolerance: {
+            lastPenaltyDate: { type: Date, default: null },
+            tokensLostToDecay: { type: Number, default: 0 },
+        },
+
         // ── Wellbeing / mood ───────────────────────────────────
         wellbeing: {
             moodHistory: {

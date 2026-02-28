@@ -24,6 +24,19 @@ export const getCourseTasks = async (req, res) => {
             filter.scheduledDate = { $gte: day, $lt: nextDay };
         }
 
+        // Exclude superseded tasks unless explicitly requested
+        if (req.query.includeSuperseded !== 'true') {
+            filter.status = { $ne: 'superseded' };
+        }
+
+        // Filter by assignedTo if userId provided
+        if (req.query.userId) {
+            filter.$or = [
+                { assignedTo: null },
+                { assignedTo: req.query.userId },
+            ];
+        }
+
         const tasks = await Task.find(filter)
             .populate('course', 'title creditWeight durationType')
             .populate('announcement', 'title eventType eventDate topics')
@@ -47,10 +60,21 @@ export const getTodaysTasks = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const tasks = await Task.find({
+        const filter = {
             course: req.params.courseId,
             scheduledDate: { $gte: today, $lt: tomorrow },
-        })
+            status: { $ne: 'superseded' },
+        };
+
+        // Filter by assignedTo if userId provided
+        if (req.query.userId) {
+            filter.$or = [
+                { assignedTo: null },
+                { assignedTo: req.query.userId },
+            ];
+        }
+
+        const tasks = await Task.find(filter)
             .populate('course', 'title creditWeight durationType')
             .populate('announcement', 'title eventType eventDate topics')
             .sort({ passNumber: 1, difficulty: 1 });
@@ -73,7 +97,20 @@ export const getTodaysTasks = async (req, res) => {
  */
 export const getSchedule = async (req, res) => {
     try {
-        const tasks = await Task.find({ course: req.params.courseId })
+        const filter = {
+            course: req.params.courseId,
+            status: { $ne: 'superseded' },
+        };
+
+        // Filter by assignedTo if userId provided
+        if (req.query.userId) {
+            filter.$or = [
+                { assignedTo: null },
+                { assignedTo: req.query.userId },
+            ];
+        }
+
+        const tasks = await Task.find(filter)
             .populate('announcement', 'title eventType eventDate')
             .sort({ scheduledDate: 1, passNumber: 1 });
 

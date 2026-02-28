@@ -49,20 +49,11 @@ vi.mock('../../src/services/questionGenerator.js', () => ({
     ]),
 }));
 
-vi.mock('@google/generative-ai', () => ({
-    GoogleGenerativeAI: class {
-        getGenerativeModel() {
-            return {
-                startChat() {
-                    return {
-                        sendMessage: vi.fn().mockResolvedValue({
-                            response: { text: () => 'E2E mock bot response' },
-                        }),
-                    };
-                },
-            };
-        }
-    },
+vi.mock('../../src/services/geminiClient.js', () => ({
+    generateContent: vi.fn().mockResolvedValue('mock content'),
+    chatCompletion: vi.fn().mockResolvedValue('E2E mock bot response'),
+    parseJSON: vi.fn((raw) => JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim())),
+    _resetThrottle: vi.fn(),
 }));
 
 import { createApp, createFakePdfBuffer } from '../helpers.js';

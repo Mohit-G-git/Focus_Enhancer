@@ -3,24 +3,13 @@ import { vi, describe, it, expect } from 'vitest';
 import request from 'supertest';
 import mongoose from 'mongoose';
 
-/* ── Mock Gemini AI in chatbot (replace callGemini internals) ─ */
-vi.mock('@google/generative-ai', () => {
-    return {
-        GoogleGenerativeAI: class {
-            getGenerativeModel() {
-                return {
-                    startChat() {
-                        return {
-                            sendMessage: vi.fn().mockResolvedValue({
-                                response: { text: () => 'Mock bot response: I\'m here to help!' },
-                            }),
-                        };
-                    },
-                };
-            }
-        },
-    };
-});
+/* ── Mock Gemini shared client (chatCompletion) ─────────────── */
+vi.mock('../../src/services/geminiClient.js', () => ({
+    generateContent: vi.fn().mockResolvedValue('mock content'),
+    chatCompletion: vi.fn().mockResolvedValue('Mock bot response: I\'m here to help!'),
+    parseJSON: vi.fn((raw) => JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim())),
+    _resetThrottle: vi.fn(),
+}));
 
 import { createApp, generateToken } from '../helpers.js';
 import User from '../../src/models/User.js';

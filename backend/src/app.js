@@ -16,6 +16,9 @@ import courseRoutes from './routes/courses.js';
 import theoryRoutes from './routes/theory.js';
 import reviewRoutes from './routes/reviews.js';
 import leaderboardRoutes from './routes/leaderboard.js';
+import directChatRoutes from './routes/directChat.js';
+import userRoutes from './routes/users.js';
+import { protect } from './middleware/auth.js';
 import { startCronJobs } from './services/cronScheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,7 +42,7 @@ app.use('/uploads', express.static(uploadsDir));
 
 // ── Health ─────────────────────────────────────────────────────
 app.get('/api/health', (_, res) => {
-    res.json({ success: true, message: 'Focus Enhancer API v4.0', timestamp: new Date().toISOString() });
+    res.json({ success: true, message: 'Focus Enhancer API v4.2', timestamp: new Date().toISOString() });
 });
 
 // ── Routes ─────────────────────────────────────────────────────
@@ -52,6 +55,8 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/theory', theoryRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/direct-chat', protect, directChatRoutes);
+app.use('/api/users', protect, userRoutes);
 
 // ── 404 ────────────────────────────────────────────────────────
 app.use((req, res) => {

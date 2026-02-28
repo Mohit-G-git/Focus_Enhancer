@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import TokenLedger from '../models/TokenLedger.js';
+import { computeToleranceStatus } from '../services/toleranceService.js';
 
 /**
  * POST /api/auth/register
@@ -119,6 +120,7 @@ export const login = async (req, res) => {
                     reputation: user.reputation,
                     streak: user.streak,
                     stats: user.stats,
+                    tolerance: computeToleranceStatus(user),
                 },
             },
         });
@@ -187,5 +189,24 @@ export const updateProfile = async (req, res) => {
     } catch (err) {
         console.error('❌ updateProfile:', err.message);
         return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * GET /api/auth/tolerance
+ * Returns the user's current tolerance status.
+ */
+export const getTolerance = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        return res.status(200).json({
+            success: true,
+            data: computeToleranceStatus(user),
+        });
+    } catch (err) {
+        console.error('❌ getTolerance:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

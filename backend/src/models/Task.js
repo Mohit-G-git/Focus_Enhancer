@@ -57,6 +57,14 @@ const TaskSchema = new mongoose.Schema(
             required: true,
         },
 
+        // ── Per-student binding (null = all enrolled students) ──
+        assignedTo: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+            index: true,
+        },
+
         // ── Task lifecycle ─────────────────────────────────────
         source: {
             type: String,
@@ -65,10 +73,15 @@ const TaskSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ['pending', 'in_progress', 'completed', 'expired'],
+            enum: ['pending', 'in_progress', 'completed', 'expired', 'superseded'],
             default: 'pending',
         },
         completedAt: { type: Date, default: null },
+        supersededBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Announcement',
+            default: null,
+        },
 
         aiGenerated: { type: Boolean, default: true },
         generationContext: {

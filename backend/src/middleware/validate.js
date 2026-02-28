@@ -108,3 +108,20 @@ export const disputeRules = [
         .isIn(['agree', 'disagree'])
         .withMessage('Action must be "agree" or "disagree"'),
 ];
+
+// ── Direct Chat Validation ─────────────────────────────────────────
+
+export const chatRequestRules = [
+    body('targetUserId')
+        .isMongoId()
+        .withMessage('Valid targetUserId required'),
+];
+
+export const directMessageRules = [
+    body('content')
+        .trim()
+        .notEmpty()
+        .withMessage('Message content is required')
+        .isLength({ max: 5000 })
+        .withMessage('Message must be ≤5000 characters'),
+];
