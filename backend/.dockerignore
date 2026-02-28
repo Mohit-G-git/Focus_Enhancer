@@ -1,0 +1,17 @@
+node_modules
+.env
+.env.example
+uploads/
+tests/
+*.test.js
+test-*.js
+live-test-*.js
+seed.js
+vitest.config.js
+README.md
+MATHEMATICS.md
+.git
+.gitignore
+Procfile
+railway.toml
+nixpacks.toml
