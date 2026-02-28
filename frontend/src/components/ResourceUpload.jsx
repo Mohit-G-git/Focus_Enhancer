@@ -13,9 +13,15 @@ export default function ResourceUpload({ onClose, courses }) {
         if (!file) return toast.error('Select a PDF');
         setLoading(true);
         const fd = new FormData();
-        fd.append('textbook', file);
-        try { await api.post(`/courses/${courseId}/upload-textbook`, fd); toast.success('Textbook uploaded!'); onClose(); }
-        catch (err) { toast.error(err.response?.data?.message || 'Upload failed'); }
+        fd.append('book', file);
+        fd.append('bookTitle', file.name.replace('.pdf', ''));
+        try {
+            const res = await api.post(`/courses/${courseId}/upload-book`, fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            toast.success(`Uploaded! ${res.data.data?.chapters || 0} chapters extracted.`);
+            onClose();
+        } catch (err) { toast.error(err.response?.data?.message || 'Upload failed'); }
         finally { setLoading(false); }
     };
 

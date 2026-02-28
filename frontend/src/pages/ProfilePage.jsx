@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
-import { User, Flame, Trophy, BookOpen, BarChart3, Clock, Award, FileText, ExternalLink, RotateCcw } from 'lucide-react';
+import {
+    User, Flame, Trophy, BookOpen, BarChart3, Clock, Award, FileText,
+    RotateCcw, Eye, ThumbsUp, ThumbsDown, Gavel, CheckCircle, Shield, AlertCircle,
+} from 'lucide-react';
+import SubmissionDetailModal from '../components/SubmissionDetailModal';
+import ReviewSolutionModal from '../components/ReviewSolutionModal';
+import toast from 'react-hot-toast';
 
 export default function ProfilePage() {
     const { userId } = useParams();
@@ -10,37 +16,50 @@ export default function ProfilePage() {
     const [profile, setProfile] = useState(null);
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [selectedAttemptId, setSelectedAttemptId] = useState(null);
+    const [reviewSolution, setReviewSolution] = useState(null);
+
+    // Received reviews (own profile)
+    const [receivedReviews, setReceivedReviews] = useState([]);
+    const [pendingCount, setPendingCount] = useState(0);
 
     const isSelf = !userId || userId === me?._id || userId === me?.id;
 
-    useEffect(() => {
-        let cancelled = false;
-        const load = async () => {
-            setLoading(true);
-            try {
-                if (isSelf) {
-                    // Always fetch fresh from API — don't rely on auth context timing
-                    const [meRes, subRes] = await Promise.all([
-                        api.get('/auth/me'),
-                        api.get('/tasks/submissions'),
-                    ]);
-                    if (cancelled) return;
-                    setProfile(meRes.data.data);
-                    setSubmissions(subRes.data.data || []);
-                } else {
-                    const r = await api.get(`/users/${userId}/profile`);
-                    if (cancelled) return;
-                    setProfile(r.data.data?.user || r.data.data);
-                    setSubmissions(r.data.data?.submissions || []);
-                }
-            } catch (err) {
-                console.error('Profile load error:', err);
+    const loadProfile = useCallback(async () => {
+        setLoading(true);
+        try {
+            if (isSelf) {
+                const [meRes, subRes, revRes] = await Promise.all([
+                    api.get('/auth/me'),
+                    api.get('/tasks/submissions'),
+                    api.get('/reviews/received?limit=50').catch(() => ({ data: { data: [], pendingDisputes: 0 } })),
+                ]);
+                setProfile(meRes.data.data);
+                setSubmissions(subRes.data.data || []);
+                setReceivedReviews(revRes.data.data || []);
+                setPendingCount(revRes.data.pendingDisputes || 0);
+            } else {
+                const r = await api.get(`/users/${userId}/profile`);
+                setProfile(r.data.data?.user || r.data.data);
+                setSubmissions(r.data.data?.submissions || []);
             }
-            if (!cancelled) setLoading(false);
-        };
-        load();
-        return () => { cancelled = true; };
+        } catch (err) {
+            console.error('Profile load error:', err);
+        }
+        setLoading(false);
     }, [userId, isSelf]);
+
+    useEffect(() => { loadProfile(); }, [loadProfile]);
+
+    const handleRespond = async (reviewId, action) => {
+        try {
+            const r = await api.post(`/reviews/${reviewId}/respond`, { action });
+            toast.success(r.data.message);
+            loadProfile(); // refresh
+        } catch (err) {
+            toast.error(err.response?.data?.message || 'Failed to respond');
+        }
+    };
 
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center" style={{ background: '#050507' }}>
@@ -92,6 +111,49 @@ export default function ProfilePage() {
                     ))}
                 </div>
 
+                {/* Pending Disputes (own profile only) */}
+                {isSelf && pendingCount > 0 && (
+                    <div className="surface rounded-2xl p-5 mb-6 border border-amber-500/10">
+                        <h2 className="text-sm font-semibold text-amber-400 mb-4 flex items-center gap-2">
+                            <AlertCircle size={14} /> Pending Disputes ({pendingCount})
+                        </h2>
+                        <div className="space-y-3">
+                            {receivedReviews.filter((r) => r.disputeStatus === 'pending_response').map((review) => (
+                                <div key={review._id} className="rounded-xl p-4 border border-white/[0.04]"
+                                    style={{ background: 'rgba(255,255,255,0.02)' }}>
+                                    <div className="flex items-start justify-between mb-2">
+                                        <div>
+                                            <p className="text-sm font-medium text-white">{review.task?.title}</p>
+                                            <p className="text-xs text-slate-500">
+                                                Downvoted by <span className="text-slate-300">{review.reviewer?.name || 'Anonymous'}</span>
+                                            </p>
+                                        </div>
+                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400">
+                                            Pending
+                                        </span>
+                                    </div>
+                                    {review.reason && (
+                                        <p className="text-xs text-slate-400 p-2 rounded-lg bg-red-500/[0.04] border border-red-500/10 mb-3">
+                                            <ThumbsDown size={10} className="inline mr-1 text-red-400" />
+                                            {review.reason}
+                                        </p>
+                                    )}
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => handleRespond(review._id, 'agree')}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer">
+                                            <CheckCircle size={12} /> Agree (lose {review.task?.tokenStake || '?'} tokens)
+                                        </button>
+                                        <button onClick={() => handleRespond(review._id, 'disagree')}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 transition-colors cursor-pointer">
+                                            <Shield size={12} /> Dispute (AI Judge)
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Submissions */}
                 <div className="surface rounded-2xl p-5">
                     <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
@@ -102,20 +164,25 @@ export default function ProfilePage() {
                     ) : (
                         <div className="space-y-3">
                             {submissions.map((sub) => (
-                                <div key={sub._id} className="rounded-xl p-4 border border-white/[0.04] hover:bg-white/[0.02] transition-colors"
+                                <div key={sub._id}
+                                    onClick={() => setSelectedAttemptId(sub._id)}
+                                    className="rounded-xl p-4 border border-white/[0.04] hover:bg-white/[0.04] hover:border-sky-500/10 transition-all cursor-pointer group"
                                     style={{ background: 'rgba(255,255,255,0.02)' }}>
                                     <div className="flex items-start justify-between mb-2">
                                         <div>
-                                            <p className="text-sm font-medium text-white">{sub.task?.title || 'Task'}</p>
+                                            <p className="text-sm font-medium text-white group-hover:text-sky-300 transition-colors">{sub.task?.title || 'Task'}</p>
                                             <p className="text-xs text-slate-500">{sub.course?.courseCode}</p>
                                         </div>
-                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
-                                            sub.mcqPassed ? 'bg-emerald-500/10 text-emerald-400'
-                                            : sub.status === 'failed' ? 'bg-red-500/10 text-red-400'
-                                            : 'bg-amber-500/10 text-amber-400'
-                                        }`}>
-                                            {sub.mcqPassed ? 'passed' : sub.status}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                                                sub.mcqPassed ? 'bg-emerald-500/10 text-emerald-400'
+                                                : sub.status === 'failed' ? 'bg-red-500/10 text-red-400'
+                                                : 'bg-amber-500/10 text-amber-400'
+                                            }`}>
+                                                {sub.mcqPassed ? 'passed' : sub.status}
+                                            </span>
+                                            <Eye size={14} className="text-slate-600 group-hover:text-sky-400 transition-colors" />
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-slate-400 mb-2">
                                         <span>MCQ: <span className="text-white font-semibold">{sub.mcqScore ?? '—'}/12</span></span>
@@ -134,20 +201,46 @@ export default function ProfilePage() {
                                         )}
                                     </div>
                                     {sub.theorySubmissionPath && (
-                                        <a href={`/${sub.theorySubmissionPath}`} target="_blank" rel="noreferrer"
-                                            className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1">
-                                            <ExternalLink size={11} /> View Theory PDF
-                                        </a>
+                                        <span className="text-xs text-violet-400 flex items-center gap-1">
+                                            <FileText size={11} /> Has Theory PDF
+                                        </span>
                                     )}
-                                    {sub.createdAt && (
-                                        <p className="text-[10px] text-slate-600 mt-1">{new Date(sub.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                                    )}
+                                    <div className="flex items-center justify-between mt-1">
+                                        {sub.createdAt && (
+                                            <p className="text-[10px] text-slate-600">{new Date(sub.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                                        )}
+                                        {!isSelf && sub.status === 'submitted' && sub.theorySubmissionPath && (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setReviewSolution({ taskId: sub.task?._id || sub.task }); }}
+                                                className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300 px-2 py-1 rounded-md bg-sky-500/[0.06] hover:bg-sky-500/[0.12] transition-colors cursor-pointer">
+                                                <Gavel size={10} /> Review
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* Submission Detail Modal */}
+            {selectedAttemptId && (
+                <SubmissionDetailModal
+                    attemptId={selectedAttemptId}
+                    onClose={() => setSelectedAttemptId(null)}
+                />
+            )}
+
+            {/* Review Solution Modal */}
+            {reviewSolution && (
+                <ReviewSolutionModal
+                    taskId={reviewSolution.taskId}
+                    revieweeId={userId}
+                    revieweeName={profile?.name}
+                    onClose={() => { setReviewSolution(null); loadProfile(); }}
+                />
+            )}
         </div>
     );
 }

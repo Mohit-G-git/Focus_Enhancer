@@ -27,11 +27,23 @@ export default function AuthPage() {
                 if (!user.enrolledCourses?.length) navigate('/register-courses');
                 else navigate('/home');
             } else {
-                await register(form);
+                // Strip empty optional fields & coerce types
+                const payload = { name: form.name, email: form.email, password: form.password };
+                if (form.studentId.trim()) payload.studentId = form.studentId.trim();
+                if (form.department.trim()) payload.department = form.department.trim();
+                if (form.semester) payload.semester = Number(form.semester);
+                if (form.year) payload.year = Number(form.year);
+                if (form.university.trim()) payload.university = form.university.trim();
+                await register(payload);
                 navigate('/welcome');
             }
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Something went wrong');
+            const data = err.response?.data;
+            if (data?.errors?.length) {
+                data.errors.forEach((e) => toast.error(`${e.field}: ${e.message}`));
+            } else {
+                toast.error(data?.message || 'Something went wrong');
+            }
         } finally { setLoading(false); }
     };
 

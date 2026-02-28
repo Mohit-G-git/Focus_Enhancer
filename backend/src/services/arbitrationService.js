@@ -17,6 +17,51 @@ import { generateContent, parseJSON } from './geminiClient.js';
    ================================================================ */
 
 /**
+ * Check a downvote remark for profanity, spam, or irrelevance.
+ * Returns { verdict: 'pass'|'reject', reasoning: string }
+ */
+export async function checkRemarkQuality({ remark, taskTitle, taskTopic, courseName }) {
+    const prompt = `You are a content moderation AI for an academic peer review platform.
+
+A student submitted a remark/critique about another student's theory submission.
+
+CONTEXT:
+- Course: ${courseName}
+- Topic: ${taskTopic}
+- Task: ${taskTitle}
+
+REMARK TO CHECK:
+"${remark}"
+
+YOUR TASK:
+Determine if this remark is:
+1. PROFANE, offensive, or contains hate speech → REJECT
+2. SPAM, gibberish, or completely irrelevant to academics → REJECT
+3. A legitimate academic critique (even if brief) → PASS
+
+Be lenient with academic critiques. A remark like "The solution to Q3 is wrong, they used the wrong formula" is valid even if short.
+Only reject clearly profane, offensive, or obviously non-academic spam.
+
+Output ONLY a JSON object:
+{
+  "verdict": "pass" or "reject",
+  "reasoning": "1 sentence explanation"
+}`;
+
+    try {
+        const raw = await generateContent(prompt, 'RemarkCheck');
+        const result = parseJSON(raw);
+        if (!['pass', 'reject'].includes(result.verdict)) {
+            return { verdict: 'pass', reasoning: 'Unable to determine — defaulting to pass.' };
+        }
+        return result;
+    } catch (err) {
+        console.error('❌ checkRemarkQuality AI error:', err.message);
+        return { verdict: 'pass', reasoning: 'AI check unavailable — defaulting to pass.' };
+    }
+}
+
+/**
  * Arbitrate a peer review dispute.
  *
  * @param {Object} params

@@ -15,6 +15,11 @@ import Task from './src/models/Task.js';
 import Announcement from './src/models/Announcement.js';
 import QuizAttempt from './src/models/QuizAttempt.js';
 import CourseProficiency from './src/models/CourseProficiency.js';
+import TheorySubmission from './src/models/TheorySubmission.js';
+import PeerReview from './src/models/PeerReview.js';
+import CRComplaint from './src/models/CRComplaint.js';
+import Conversation from './src/models/Conversation.js';
+import DirectConversation from './src/models/DirectConversation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MONGO_URI = process.env.MONGO_URI;
@@ -90,11 +95,20 @@ async function seed() {
     await Announcement.deleteMany({});
     await QuizAttempt.deleteMany({});
     await CourseProficiency.deleteMany({});
+    await TheorySubmission.deleteMany({});
+    await PeerReview.deleteMany({});
+    await CRComplaint.deleteMany({});
+    await Conversation.deleteMany({});
+    await DirectConversation.deleteMany({});
 
     // Drop old unique index on QuizAttempt (if it exists from previous schema)
     try {
         await mongoose.connection.collection('quizattempts').dropIndex('user_1_task_1');
         console.log('   🗑️  Dropped old unique index on quizattempts');
+    } catch { /* index doesn't exist, fine */ }
+    try {
+        await mongoose.connection.collection('crcomplaints').dropIndex('complainant_1_course_1_status_1');
+        console.log('   🗑️  Dropped old complaint index');
     } catch { /* index doesn't exist, fine */ }
 
     console.log('🗑️  Cleared all collections');
@@ -350,7 +364,7 @@ async function seed() {
             theoryPath = createDummyPDF(`theory_${user._id}_${task._id}_${scenario.attempt}.pdf`);
         }
 
-        await QuizAttempt.create({
+        const quizAttempt = await QuizAttempt.create({
             user: user._id, task: task._id, course: task.course,
             mcqs, mcqResponses: responses,
             mcqStartedAt: createdAt,
@@ -373,6 +387,37 @@ async function seed() {
             theorySubmittedAt: theoryPath ? new Date() : null,
             createdAt,
         });
+
+        // Create TheorySubmission document (needed for peer review system)
+        if (theoryPath && scenario.passed) {
+            const pdfFilename = `theory_${user._id}_${task._id}_${scenario.attempt}.pdf`;
+            await TheorySubmission.create({
+                student: user._id,
+                task: task._id,
+                quizAttempt: quizAttempt._id,
+                course: task.course,
+                pdf: {
+                    originalName: pdfFilename,
+                    storedPath: theoryPath,
+                    sizeBytes: 500,
+                    uploadedAt: new Date(),
+                },
+                aiGrading: {
+                    status: 'graded',
+                    totalScore: 40 + Math.floor(Math.random() * 25),
+                    maxScore: 70,
+                    feedback: 'Good understanding of core concepts. Well-structured answers.',
+                    questionBreakdown: Array.from({ length: 7 }, (_, i) => ({
+                        questionIndex: i,
+                        score: 5 + Math.floor(Math.random() * 5),
+                        maxScore: 10,
+                        feedback: 'Adequate explanation.',
+                    })),
+                    gradedAt: new Date(),
+                },
+                tokensAwarded: task.reward,
+            });
+        }
 
         // Update user stats
         const u = await User.findById(user._id);

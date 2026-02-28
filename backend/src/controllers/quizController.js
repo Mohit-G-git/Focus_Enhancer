@@ -62,7 +62,7 @@ export const startQuiz = async (req, res) => {
             if (latest.status === 'theory_pending' || latest.status === 'mcq_completed') {
                 return res.status(400).json({
                     success: false,
-                    message: `Quiz still ${latest.status}. Complete or abandon before re-attempting.`,
+                    message: 'You have an unfinished quiz. Complete or abandon it before re-attempting.',
                 });
             }
             // status = 'failed' or 'submitted' → allow re-attempt
@@ -379,6 +379,60 @@ export const getAttemptInfo = async (req, res) => {
         });
     } catch (err) {
         console.error('❌ getAttemptInfo:', err.message);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * GET /api/quiz/attempt/:attemptId/detail
+ * Returns full submission detail for viewing another user's attempt.
+ * Includes MCQ questions (with correct answers), user responses,
+ * theory questions, and theory PDF path.
+ */
+export const getAttemptDetail = async (req, res) => {
+    try {
+        const attempt = await QuizAttempt.findById(req.params.attemptId)
+            .populate('task', 'title topic difficulty tokenStake description')
+            .populate('course', 'courseCode title')
+            .populate('user', 'name department');
+
+        if (!attempt) return res.status(404).json({ success: false, message: 'Attempt not found' });
+
+        // Build MCQ detail: question, options, correct answer, user's answer, correctness
+        const mcqDetail = attempt.mcqs.map((q, idx) => {
+            const response = attempt.mcqResponses.find((r) => r.questionIndex === idx) || {};
+            return {
+                question: q.question,
+                options: q.options,
+                correctAnswer: q.correctAnswer,
+                selectedAnswer: response.selectedAnswer ?? null,
+                isCorrect: response.isCorrect ?? null,
+                points: response.points ?? 0,
+            };
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                _id: attempt._id,
+                user: attempt.user,
+                task: attempt.task,
+                course: attempt.course,
+                attemptNumber: attempt.attemptNumber,
+                effectiveStake: attempt.effectiveStake,
+                mcqScore: attempt.mcqScore,
+                mcqPassed: attempt.mcqPassed,
+                status: attempt.status,
+                tokensAwarded: attempt.tokensAwarded,
+                mcqDetail,
+                theoryQuestions: attempt.theoryQuestions || [],
+                theorySubmissionPath: attempt.theorySubmissionPath,
+                theorySubmittedAt: attempt.theorySubmittedAt,
+                createdAt: attempt.createdAt,
+            },
+        });
+    } catch (err) {
+        console.error('❌ getAttemptDetail:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }
 };

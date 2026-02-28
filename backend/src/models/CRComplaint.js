@@ -9,14 +9,15 @@ const crComplaintSchema = new mongoose.Schema({
         enum: ['false_announcement', 'missing_announcement'],
         required: true,
     },
-    description: { type: String, required: true, trim: true, maxlength: 1000 },
+    description: { type: String, trim: true, maxlength: 1000, default: '' },
     status: {
         type: String,
-        enum: ['pending', 'reviewed', 'resolved', 'dismissed'],
+        enum: ['pending', 'resolved', 'dismissed'],
         default: 'pending',
     },
 }, { timestamps: true });
 
-crComplaintSchema.index({ complainant: 1, course: 1, status: 1 });
+// One complaint per student per course per CR tenure
+crComplaintSchema.index({ complainant: 1, course: 1, cr: 1 }, { unique: true });
 
 export default mongoose.model('CRComplaint', crComplaintSchema);

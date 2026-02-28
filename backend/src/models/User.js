@@ -157,6 +157,21 @@ UserSchema.methods.recalculateReputation = function () {
     return this.reputation;
 };
 
+/**
+ * Apply a reputation penalty. Loss scales with current reputation.
+ * Formula: loss = ceil(5 + √reputation × 2)
+ *   rep   0 → lose  5
+ *   rep  25 → lose 15
+ *   rep 100 → lose 25
+ *   rep 225 → lose 35
+ * Returns the amount of reputation lost.
+ */
+UserSchema.methods.applyReputationPenalty = function () {
+    const loss = Math.ceil(5 + Math.sqrt(Math.max(0, this.reputation)) * 2);
+    this.reputation = Math.max(0, this.reputation - loss);
+    return loss;
+};
+
 /** Bump streak if active today; reset if gap > 1 day. */
 UserSchema.methods.updateStreak = function () {
     const today = new Date();

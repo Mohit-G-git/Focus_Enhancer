@@ -1,18 +1,20 @@
 import mongoose from 'mongoose';
 
 /* ================================================================
-   PEER REVIEW MODEL — Upvote / Downvote + Dispute Arbitration
+   PEER REVIEW MODEL — Wager-gated PDF unlock + Upvote / Downvote
    ================================================================
    Flow:
-     1. Reviewer sees an accomplished task (submitted theory)
-     2. They can UPVOTE (costs wager, no score change) or DOWNVOTE
-     3. DOWNVOTE requires a reason + wager (compulsory token bet)
-     4. Downvoted user can AGREE (loses task tokens) or DISAGREE
-     5. On DISAGREE → AI arbitrates using solution PDF vs question
-     6. If AI sides with downvoter → downvoted loses task tokens,
-        downvoter gains their wager
-     7. If AI sides with reviewee → downvoter loses wager,
-        reviewee keeps tokens
+     1. Reviewer pays wager to UNLOCK the PDF  → type: 'pending'
+     2. UPVOTE  → wager returned (net 0), reviewee gains reputation
+     3. DOWNVOTE → remark required
+        a. AI checks remark for profanity/spam
+           • Rejected → reviewer loses wager + 10-token penalty
+        b. Remark passes → reviewee notified (pending_response)
+           • AGREE → reviewer gets wager back, reviewee loses task.tokenStake
+           • DISAGREE → AI arbitration
+              - Solution correct → reviewer loses wager
+              - Solution wrong → reviewer gets wager back,
+                reviewee loses task.reward + reputation hit
    ================================================================ */
 
 const PeerReviewSchema = new mongoose.Schema(
@@ -57,8 +59,8 @@ const PeerReviewSchema = new mongoose.Schema(
         // ── Review details ────────────────────────────────────
         type: {
             type: String,
-            enum: ['upvote', 'downvote'],
-            required: true,
+            enum: ['pending', 'upvote', 'downvote'],
+            default: 'pending',
         },
         wager: {
             type: Number,
@@ -71,17 +73,28 @@ const PeerReviewSchema = new mongoose.Schema(
             trim: true,
         },
 
+        // ── AI remark quality check (profanity/spam) ──────────
+        remarkCheck: {
+            status: {
+                type: String,
+                enum: ['none', 'passed', 'rejected'],
+                default: 'none',
+            },
+            reasoning: { type: String, default: '' },
+            checkedAt: { type: Date, default: null },
+        },
+
         // ── Dispute flow (downvotes only) ─────────────────────
         disputeStatus: {
             type: String,
             enum: [
-                'none',              // upvote — no dispute possible
+                'none',              // pending / upvote — no dispute
+                'remark_rejected',   // AI flagged remark as spam/profanity
                 'pending_response',  // downvote cast, awaiting reviewee
                 'agreed',            // reviewee accepted the downvote
-                'disputed',          // reviewee disagreed → AI called
-                'ai_reviewing',      // AI is analysing
-                'resolved_downvoter_wins',  // AI sided with downvoter
-                'resolved_reviewee_wins',   // AI sided with reviewee
+                'ai_reviewing',      // AI is analysing the dispute
+                'resolved_downvoter_wins',
+                'resolved_reviewee_wins',
             ],
             default: 'none',
         },

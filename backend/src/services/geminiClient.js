@@ -22,10 +22,11 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 const GEMINI_MODELS = [
     process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
     'gemini-2.0-flash',
-    'gemini-flash-latest',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
 ];
 
-const THROTTLE_MS = parseInt(process.env.GEMINI_THROTTLE_MS, 10) || 10_000;
+const THROTTLE_MS = parseInt(process.env.GEMINI_THROTTLE_MS, 10) || 6_000;
 
 // ── Singleton SDK instance ─────────────────────────────────────────
 let _genAI;

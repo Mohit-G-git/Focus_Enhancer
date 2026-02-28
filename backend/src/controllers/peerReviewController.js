@@ -5,37 +5,30 @@ import Task from '../models/Task.js';
 import User from '../models/User.js';
 import TokenLedger from '../models/TokenLedger.js';
 import CourseProficiency from '../models/CourseProficiency.js';
-import { arbitrateDispute } from '../services/arbitrationService.js';
+import { arbitrateDispute, checkRemarkQuality } from '../services/arbitrationService.js';
 
 /* ================================================================
-   PEER REVIEW CONTROLLER
+   PEER REVIEW CONTROLLER — Wager-Gated Review System
    ================================================================
-   Endpoints:
-     GET    /api/reviews/accomplished/:userId        → getAccomplishedTasks
-     GET    /api/reviews/solution/:taskId/:userId     → viewSolution
-     POST   /api/reviews/upvote                       → upvote
-     POST   /api/reviews/downvote                     → downvote
-     POST   /api/reviews/:reviewId/respond            → respondToDownvote
-     GET    /api/reviews/my-reviews                   → getMyReviews
-     GET    /api/reviews/received                     → getReceivedReviews
+   POST   /api/reviews/unlock                → unlockSolution
+   POST   /api/reviews/:reviewId/vote        → castVote
+   POST   /api/reviews/:reviewId/respond     → respondToDownvote
+   GET    /api/reviews/solution/:taskId/:uid → viewSolution
+   GET    /api/reviews/accomplished/:userId  → getAccomplishedTasks
+   GET    /api/reviews/my-reviews            → getMyReviews
+   GET    /api/reviews/received              → getReceivedReviews
    ================================================================ */
 
-/**
- * Helper: ensure a CourseProficiency doc exists for a user+course.
- */
 async function getOrCreateProficiency(userId, courseId) {
     let prof = await CourseProficiency.findOne({ user: userId, course: courseId });
-    if (!prof) {
-        prof = await CourseProficiency.create({ user: userId, course: courseId });
-    }
+    if (!prof) prof = await CourseProficiency.create({ user: userId, course: courseId });
     return prof;
 }
 
-/**
- * GET /api/reviews/accomplished/:userId
- * List recently accomplished tasks (submitted theory) for a user's profile.
- * Anyone can view these — they're the public "showcase".
- */
+/* ────────────────────────────────────────────────────────────────
+   GET /api/reviews/accomplished/:userId
+   Public showcase of a user's submitted theory work.
+   ──────────────────────────────────────────────────────────────── */
 export const getAccomplishedTasks = async (req, res) => {
     try {
         const { userId } = req.params;
@@ -43,22 +36,17 @@ export const getAccomplishedTasks = async (req, res) => {
         const submissions = await TheorySubmission.find({ student: userId })
             .populate({
                 path: 'task',
-                select: 'title topic type difficulty course',
+                select: 'title topic type difficulty course tokenStake reward',
                 populate: { path: 'course', select: 'title courseCode' },
             })
             .populate('quizAttempt', 'mcqScore mcqPassed theoryQuestions status')
             .sort({ createdAt: -1 })
             .limit(20);
 
-        // Attach review summary for each
         const result = await Promise.all(
             submissions.map(async (sub) => {
-                const upvotes = await PeerReview.countDocuments({
-                    task: sub.task._id, reviewee: userId, type: 'upvote',
-                });
-                const downvotes = await PeerReview.countDocuments({
-                    task: sub.task._id, reviewee: userId, type: 'downvote',
-                });
+                const upvotes = await PeerReview.countDocuments({ task: sub.task._id, reviewee: userId, type: 'upvote' });
+                const downvotes = await PeerReview.countDocuments({ task: sub.task._id, reviewee: userId, type: 'downvote' });
                 return {
                     submissionId: sub._id,
                     task: sub.task,
@@ -68,10 +56,7 @@ export const getAccomplishedTasks = async (req, res) => {
                         theoryQuestionCount: sub.quizAttempt.theoryQuestions?.length || 0,
                         status: sub.quizAttempt.status,
                     },
-                    pdf: {
-                        originalName: sub.pdf.originalName,
-                        uploadedAt: sub.pdf.uploadedAt,
-                    },
+                    pdf: { originalName: sub.pdf.originalName, uploadedAt: sub.pdf.uploadedAt },
                     peerReview: { upvotes, downvotes },
                     createdAt: sub.createdAt,
                 };
@@ -85,16 +70,16 @@ export const getAccomplishedTasks = async (req, res) => {
     }
 };
 
-/**
- * GET /api/reviews/solution/:taskId/:userId
- * View the theory questions + PDF solution for a specific task by a user.
- * This is what a reviewer sees before deciding to upvote/downvote.
- */
+/* ────────────────────────────────────────────────────────────────
+   GET /api/reviews/solution/:taskId/:userId
+   View theory questions. PDF path is ONLY returned if the viewer
+   has already unlocked (i.e., has an existing PeerReview record).
+   ──────────────────────────────────────────────────────────────── */
 export const viewSolution = async (req, res) => {
     try {
         const { taskId, userId } = req.params;
 
-        const attempt = await QuizAttempt.findOne({ user: userId, task: taskId });
+        const attempt = await QuizAttempt.findOne({ user: userId, task: taskId }).sort({ createdAt: -1 });
         if (!attempt || attempt.status !== 'submitted') {
             return res.status(404).json({ success: false, message: 'No submitted solution found' });
         }
@@ -104,39 +89,42 @@ export const viewSolution = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Theory submission not found' });
         }
 
-        const task = await Task.findById(taskId)
-            .populate('course', 'title courseCode');
+        const task = await Task.findById(taskId).populate('course', 'title courseCode');
 
-        // Check if current viewer already reviewed
+        // Check if current viewer already has a review
         const viewerId = req.user?.id;
         let existingReview = null;
         if (viewerId) {
             existingReview = await PeerReview.findOne({ reviewer: viewerId, task: taskId });
         }
 
+        // Gate PDF path behind unlock
+        const pdfData = existingReview
+            ? { originalName: submission.pdf.originalName, storedPath: submission.pdf.storedPath, uploadedAt: submission.pdf.uploadedAt }
+            : { originalName: submission.pdf.originalName, uploadedAt: submission.pdf.uploadedAt, locked: true };
+
         return res.status(200).json({
             success: true,
             data: {
                 task: {
-                    _id: task._id,
-                    title: task.title,
-                    topic: task.topic,
-                    type: task.type,
-                    difficulty: task.difficulty,
-                    course: task.course,
+                    _id: task._id, title: task.title, topic: task.topic,
+                    type: task.type, difficulty: task.difficulty, course: task.course,
+                    tokenStake: task.tokenStake, reward: task.reward,
                 },
-                theoryQuestions: attempt.theoryQuestions.map((q, i) => ({
-                    number: i + 1,
-                    question: q,
-                })),
-                pdf: {
-                    originalName: submission.pdf.originalName,
-                    storedPath: submission.pdf.storedPath,
-                    uploadedAt: submission.pdf.uploadedAt,
-                },
+                theoryQuestions: attempt.theoryQuestions.map((q, i) => ({ number: i + 1, question: q })),
+                pdf: pdfData,
                 mcqScore: attempt.mcqScore,
                 existingReview: existingReview
-                    ? { type: existingReview.type, disputeStatus: existingReview.disputeStatus }
+                    ? {
+                        _id: existingReview._id,
+                        type: existingReview.type,
+                        wager: existingReview.wager,
+                        reason: existingReview.reason,
+                        remarkCheck: existingReview.remarkCheck,
+                        disputeStatus: existingReview.disputeStatus,
+                        aiVerdict: existingReview.aiVerdict,
+                        settled: existingReview.settled,
+                    }
                     : null,
             },
         });
@@ -146,17 +134,16 @@ export const viewSolution = async (req, res) => {
     }
 };
 
-/**
- * POST /api/reviews/upvote
- * Body: { taskId, revieweeId, wager }
- * Costs the reviewer `wager` tokens. No score changes.
- */
-export const upvote = async (req, res) => {
+/* ────────────────────────────────────────────────────────────────
+   POST /api/reviews/unlock
+   Body: { taskId, revieweeId, wager }
+   Pay wager to unlock the PDF. Creates PeerReview type='pending'.
+   ──────────────────────────────────────────────────────────────── */
+export const unlockSolution = async (req, res) => {
     try {
         const reviewerId = req.user.id;
         const { taskId, revieweeId, wager } = req.body;
 
-        // ── Validations ──────────────────────────────────────
         if (reviewerId === revieweeId) {
             return res.status(400).json({ success: false, message: 'Cannot review your own submission' });
         }
@@ -164,8 +151,7 @@ export const upvote = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Wager must be at least 1 token' });
         }
 
-        // Verify submitted solution exists
-        const attempt = await QuizAttempt.findOne({ user: revieweeId, task: taskId });
+        const attempt = await QuizAttempt.findOne({ user: revieweeId, task: taskId }).sort({ createdAt: -1 });
         if (!attempt || attempt.status !== 'submitted') {
             return res.status(404).json({ success: false, message: 'No submitted solution for this task' });
         }
@@ -177,10 +163,10 @@ export const upvote = async (req, res) => {
         // Check for existing review
         const existing = await PeerReview.findOne({ reviewer: reviewerId, task: taskId });
         if (existing) {
-            return res.status(409).json({ success: false, message: 'You have already reviewed this task' });
+            return res.status(409).json({ success: false, message: 'You have already unlocked/reviewed this task' });
         }
 
-        // Check reviewer has enough tokens
+        // Check reviewer balance
         const reviewer = await User.findById(reviewerId);
         if (reviewer.tokenBalance < wager) {
             return res.status(400).json({
@@ -191,20 +177,15 @@ export const upvote = async (req, res) => {
 
         // Deduct wager
         reviewer.tokenBalance -= wager;
-        reviewer.stats.reviewsGiven += 1;
         await TokenLedger.create({
-            userId: reviewer._id,
-            taskId,
-            type: 'peer_wager',
-            amount: -wager,
-            balanceAfter: reviewer.tokenBalance,
-            note: `Upvote wager: ${wager} tokens on task review`,
+            userId: reviewer._id, taskId, type: 'peer_wager',
+            amount: -wager, balanceAfter: reviewer.tokenBalance,
+            note: `Unlock wager: ${wager} tokens to view PDF for peer review`,
         });
         await reviewer.save();
 
         const task = await Task.findById(taskId);
 
-        // Create review
         const review = await PeerReview.create({
             reviewer: reviewerId,
             reviewee: revieweeId,
@@ -212,124 +193,154 @@ export const upvote = async (req, res) => {
             quizAttempt: attempt._id,
             theorySubmission: submission._id,
             course: task.course,
-            type: 'upvote',
+            type: 'pending',
             wager,
             disputeStatus: 'none',
-            settled: true,
-            tokensTransferred: 0,
+            settled: false,
         });
-
-        // Update reviewee's stats and proficiency
-        const reviewee = await User.findById(revieweeId);
-        reviewee.stats.upvotesReceived += 1;
-        reviewee.recalculateReputation();
-        await reviewee.save();
-
-        const prof = await getOrCreateProficiency(revieweeId, task.course);
-        prof.upvotesReceived += 1;
-        prof.recalculate();
-        await prof.save();
 
         return res.status(201).json({
             success: true,
-            message: 'Upvote recorded. Thank you for reviewing!',
+            message: `PDF unlocked! ${wager} tokens wagered.`,
             data: {
                 reviewId: review._id,
-                type: 'upvote',
-                wager,
-                revieweeReputation: reviewee.reputation,
+                pdf: {
+                    originalName: submission.pdf.originalName,
+                    storedPath: submission.pdf.storedPath,
+                    uploadedAt: submission.pdf.uploadedAt,
+                },
             },
         });
     } catch (err) {
-        console.error('❌ upvote:', err.message);
+        console.error('❌ unlockSolution:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 
-/**
- * POST /api/reviews/downvote
- * Body: { taskId, revieweeId, wager, reason }
- * Costs the reviewer `wager` tokens. Reason is compulsory.
- * Reviewee will be notified and can agree or dispute.
- */
-export const downvote = async (req, res) => {
+/* ────────────────────────────────────────────────────────────────
+   POST /api/reviews/:reviewId/vote
+   Body: { type: 'upvote'|'downvote', reason? }
+   Upvote  → wager returned (free review, net 0)
+   Downvote → AI checks remark, then pipeline starts
+   ──────────────────────────────────────────────────────────────── */
+export const castVote = async (req, res) => {
     try {
         const reviewerId = req.user.id;
-        const { taskId, revieweeId, wager, reason } = req.body;
+        const { reviewId } = req.params;
+        const { type, reason } = req.body;
 
-        // ── Validations ──────────────────────────────────────
-        if (reviewerId === revieweeId) {
-            return res.status(400).json({ success: false, message: 'Cannot review your own submission' });
+        const review = await PeerReview.findById(reviewId);
+        if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
+        if (review.reviewer.toString() !== reviewerId) {
+            return res.status(403).json({ success: false, message: 'Not your review' });
         }
-        if (!wager || wager < 1) {
-            return res.status(400).json({ success: false, message: 'Wager must be at least 1 token' });
-        }
-        if (!reason || reason.trim().length < 10) {
-            return res.status(400).json({ success: false, message: 'Downvote reason must be at least 10 characters' });
-        }
-
-        // Verify submitted solution exists
-        const attempt = await QuizAttempt.findOne({ user: revieweeId, task: taskId });
-        if (!attempt || attempt.status !== 'submitted') {
-            return res.status(404).json({ success: false, message: 'No submitted solution for this task' });
-        }
-        const submission = await TheorySubmission.findOne({ student: revieweeId, task: taskId });
-        if (!submission) {
-            return res.status(404).json({ success: false, message: 'Theory submission not found' });
+        if (review.type !== 'pending') {
+            return res.status(400).json({ success: false, message: 'Vote already cast' });
         }
 
-        // Check for existing review
-        const existing = await PeerReview.findOne({ reviewer: reviewerId, task: taskId });
-        if (existing) {
-            return res.status(409).json({ success: false, message: 'You have already reviewed this task' });
-        }
-
-        // Check reviewer has enough tokens
         const reviewer = await User.findById(reviewerId);
-        if (reviewer.tokenBalance < wager) {
-            return res.status(400).json({
-                success: false,
-                message: `Insufficient tokens. Need ${wager}, have ${reviewer.tokenBalance}`,
+        const reviewee = await User.findById(review.reviewee);
+        const task = await Task.findById(review.task).populate('course', 'title');
+
+        /* ── UPVOTE ──────────────────────────────────────────── */
+        if (type === 'upvote') {
+            review.type = 'upvote';
+            review.settled = true;
+            review.tokensTransferred = 0;
+
+            // Return wager (net: 0 for reviewer)
+            reviewer.tokenBalance += review.wager;
+            reviewer.stats.reviewsGiven += 1;
+            await TokenLedger.create({
+                userId: reviewer._id, taskId: task._id, type: 'peer_reward',
+                amount: review.wager, balanceAfter: reviewer.tokenBalance,
+                note: `Upvote: wager of ${review.wager} returned`,
+            });
+            await reviewer.save();
+
+            // Reviewee reputation bump
+            reviewee.stats.upvotesReceived += 1;
+            reviewee.recalculateReputation();
+            await reviewee.save();
+
+            const prof = await getOrCreateProficiency(review.reviewee, task.course);
+            prof.upvotesReceived += 1;
+            prof.recalculate();
+            await prof.save();
+
+            await review.save();
+
+            return res.status(200).json({
+                success: true,
+                message: 'Upvote recorded. Wager returned — no cost to you!',
+                data: { type: 'upvote', wagerReturned: review.wager },
             });
         }
 
-        // Deduct wager
-        reviewer.tokenBalance -= wager;
+        /* ── DOWNVOTE ────────────────────────────────────────── */
+        if (!reason || reason.trim().length < 10) {
+            return res.status(400).json({ success: false, message: 'Downvote remark must be at least 10 characters' });
+        }
+
+        review.reason = reason.trim();
+        review.type = 'downvote';
         reviewer.stats.reviewsGiven += 1;
-        await TokenLedger.create({
-            userId: reviewer._id,
-            taskId,
-            type: 'peer_wager',
-            amount: -wager,
-            balanceAfter: reviewer.tokenBalance,
-            note: `Downvote wager: ${wager} tokens on task review`,
-        });
-        await reviewer.save();
 
-        const task = await Task.findById(taskId);
+        // Step 1: AI remark quality check (profanity / spam)
+        let remarkResult;
+        try {
+            remarkResult = await checkRemarkQuality({
+                remark: reason.trim(),
+                taskTitle: task.title,
+                taskTopic: task.topic,
+                courseName: task.course.title,
+            });
+        } catch (aiErr) {
+            console.error('❌ Remark check AI failed:', aiErr.message);
+            remarkResult = { verdict: 'pass', reasoning: 'AI check failed — defaulting to pass.' };
+        }
 
-        // Create review — pending response from reviewee
-        const review = await PeerReview.create({
-            reviewer: reviewerId,
-            reviewee: revieweeId,
-            task: taskId,
-            quizAttempt: attempt._id,
-            theorySubmission: submission._id,
-            course: task.course,
-            type: 'downvote',
-            wager,
-            reason: reason.trim(),
-            disputeStatus: 'pending_response',
-            settled: false,
-        });
+        review.remarkCheck = {
+            status: remarkResult.verdict === 'pass' ? 'passed' : 'rejected',
+            reasoning: remarkResult.reasoning,
+            checkedAt: new Date(),
+        };
 
-        // Update reviewee stats (downvote received, but not yet "lost")
-        const reviewee = await User.findById(revieweeId);
+        if (remarkResult.verdict === 'reject') {
+            // ── SPAM / PROFANITY: reviewer loses wager + 10 penalty ──
+            const SPAM_PENALTY = 10;
+            review.disputeStatus = 'remark_rejected';
+            review.settled = true;
+
+            reviewer.tokenBalance = Math.max(0, reviewer.tokenBalance - SPAM_PENALTY);
+            reviewer.stats.tokensLost += review.wager + SPAM_PENALTY;
+            await TokenLedger.create({
+                userId: reviewer._id, taskId: task._id, type: 'peer_penalty',
+                amount: -SPAM_PENALTY, balanceAfter: reviewer.tokenBalance,
+                note: `Remark rejected (spam/profanity): wager ${review.wager} forfeited + ${SPAM_PENALTY} penalty`,
+            });
+            await reviewer.save();
+            await review.save();
+
+            return res.status(200).json({
+                success: true,
+                message: `Remark rejected: ${remarkResult.reasoning}. You lost ${review.wager + SPAM_PENALTY} tokens.`,
+                data: { type: 'downvote', remarkStatus: 'rejected', totalLost: review.wager + SPAM_PENALTY },
+            });
+        }
+
+        // ── Remark passed → notify reviewee ─────────────────────
+        review.disputeStatus = 'pending_response';
+        review.settled = false;
+
         reviewee.stats.downvotesReceived += 1;
         reviewee.recalculateReputation();
         await reviewee.save();
 
-        const prof = await getOrCreateProficiency(revieweeId, task.course);
+        await reviewer.save();
+        await review.save();
+
+        const prof = await getOrCreateProficiency(review.reviewee, task.course);
         prof.downvotesReceived += 1;
         prof.recalculate();
         await prof.save();
@@ -337,28 +348,28 @@ export const downvote = async (req, res) => {
         return res.status(201).json({
             success: true,
             message: 'Downvote recorded. The student will be notified to respond.',
-            data: {
-                reviewId: review._id,
-                type: 'downvote',
-                wager,
-                reason: review.reason,
-                disputeStatus: review.disputeStatus,
-            },
+            data: { type: 'downvote', remarkStatus: 'passed', disputeStatus: 'pending_response' },
         });
     } catch (err) {
-        console.error('❌ downvote:', err.message);
+        console.error('❌ castVote:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }
 };
 
-/**
- * POST /api/reviews/:reviewId/respond
- * Body: { action: 'agree' | 'disagree' }
- * Only the reviewee can respond.
- *
- * AGREE  → reviewee loses task tokens, downvoter gets wager back + reward
- * DISAGREE → AI arbitration triggered
- */
+/* ────────────────────────────────────────────────────────────────
+   POST /api/reviews/:reviewId/respond
+   Body: { action: 'agree' | 'disagree' }
+   Only the reviewee can respond to a pending downvote.
+
+   AGREE →
+     Reviewer gets wager back.
+     Reviewee loses task.tokenStake (the task's stake value).
+
+   DISAGREE → AI arbitration
+     AI says solution correct → reviewer loses wager
+     AI says solution wrong  → reviewer gets wager back,
+       reviewee loses task.reward (tokens earned) + reputation hit
+   ──────────────────────────────────────────────────────────────── */
 export const respondToDownvote = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -370,9 +381,7 @@ export const respondToDownvote = async (req, res) => {
         }
 
         const review = await PeerReview.findById(reviewId);
-        if (!review) {
-            return res.status(404).json({ success: false, message: 'Review not found' });
-        }
+        if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
         if (review.reviewee.toString() !== userId) {
             return res.status(403).json({ success: false, message: 'Only the reviewee can respond' });
         }
@@ -384,12 +393,12 @@ export const respondToDownvote = async (req, res) => {
         const reviewer = await User.findById(review.reviewer);
         const reviewee = await User.findById(review.reviewee);
 
+        /* ── AGREE ─────────────────────────────────────────── */
         if (action === 'agree') {
-            // ── AGREE: reviewee accepts fault ──────────────────
             review.disputeStatus = 'agreed';
             review.settled = true;
 
-            // Reviewee loses task token stake
+            // Reviewee loses task.tokenStake
             const taskLoss = task.tokenStake;
             reviewee.tokenBalance = Math.max(0, reviewee.tokenBalance - taskLoss);
             reviewee.stats.tokensLost += taskLoss;
@@ -398,25 +407,22 @@ export const respondToDownvote = async (req, res) => {
             await TokenLedger.create({
                 userId: reviewee._id, taskId: task._id, type: 'peer_penalty',
                 amount: -taskLoss, balanceAfter: reviewee.tokenBalance,
-                note: `Agreed to downvote: lost ${taskLoss} tokens for task "${task.title}"`,
+                note: `Agreed to downvote: lost ${taskLoss} tokens (task value) for "${task.title}"`,
             });
             await reviewee.save();
 
-            // Downvoter gets wager back + reward (wager amount as bonus)
-            const reward = review.wager;
-            reviewer.tokenBalance += review.wager + reward;
-            reviewer.stats.tokensEarned += reward;
+            // Reviewer gets wager back
+            reviewer.tokenBalance += review.wager;
             await TokenLedger.create({
                 userId: reviewer._id, taskId: task._id, type: 'peer_reward',
-                amount: review.wager + reward, balanceAfter: reviewer.tokenBalance,
-                note: `Downvote upheld (agreed): wager ${review.wager} returned + ${reward} reward`,
+                amount: review.wager, balanceAfter: reviewer.tokenBalance,
+                note: `Downvote upheld (agreed): wager ${review.wager} returned`,
             });
             await reviewer.save();
 
             review.tokensTransferred = taskLoss;
             await review.save();
 
-            // Update course proficiency
             const prof = await getOrCreateProficiency(reviewee._id, task.course);
             prof.downvotesLost += 1;
             prof.recalculate();
@@ -424,20 +430,15 @@ export const respondToDownvote = async (req, res) => {
 
             return res.status(200).json({
                 success: true,
-                message: 'You agreed to the downvote. Tokens settled.',
-                data: {
-                    reviewId: review._id,
-                    disputeStatus: 'agreed',
-                    tokensLost: taskLoss,
-                },
+                message: `You agreed to the downvote. Lost ${taskLoss} tokens.`,
+                data: { disputeStatus: 'agreed', tokensLost: taskLoss },
             });
         }
 
-        // ── DISAGREE: trigger AI arbitration ──────────────────
+        /* ── DISAGREE → AI ARBITRATION ─────────────────────── */
         review.disputeStatus = 'ai_reviewing';
         await review.save();
 
-        // Get theory questions from the quiz attempt
         const attempt = await QuizAttempt.findOne({ _id: review.quizAttempt });
         const submission = await TheorySubmission.findOne({ _id: review.theorySubmission });
 
@@ -453,7 +454,6 @@ export const respondToDownvote = async (req, res) => {
             });
         } catch (aiErr) {
             console.error('❌ AI arbitration failed:', aiErr.message);
-            // On AI failure, default to reviewee wins (benefit of doubt)
             verdict = {
                 decision: 'reviewee_correct',
                 reasoning: 'AI arbitration failed. Benefit of the doubt goes to the student.',
@@ -469,61 +469,59 @@ export const respondToDownvote = async (req, res) => {
         };
 
         if (verdict.decision === 'downvoter_correct') {
-            // ── AI sided with downvoter ──────────────────────
+            /* ── AI sided with downvoter ────────────────────── */
             review.disputeStatus = 'resolved_downvoter_wins';
             review.settled = true;
 
-            // Reviewee loses task tokens
-            const taskLoss = task.tokenStake;
-            reviewee.tokenBalance = Math.max(0, reviewee.tokenBalance - taskLoss);
-            reviewee.stats.tokensLost += taskLoss;
-            reviewee.stats.downvotesLost += 1;
-            reviewee.recalculateReputation();
-            await TokenLedger.create({
-                userId: reviewee._id, taskId: task._id, type: 'peer_penalty',
-                amount: -taskLoss, balanceAfter: reviewee.tokenBalance,
-                note: `AI ruled downvoter correct: lost ${taskLoss} tokens for "${task.title}"`,
-            });
-            await reviewee.save();
-
-            // Downvoter gets wager back + reward
-            const reward = review.wager;
-            reviewer.tokenBalance += review.wager + reward;
-            reviewer.stats.tokensEarned += reward;
+            // Reviewer gets wager back
+            reviewer.tokenBalance += review.wager;
             await TokenLedger.create({
                 userId: reviewer._id, taskId: task._id, type: 'peer_reward',
-                amount: review.wager + reward, balanceAfter: reviewer.tokenBalance,
-                note: `AI upheld downvote: wager ${review.wager} returned + ${reward} reward`,
+                amount: review.wager, balanceAfter: reviewer.tokenBalance,
+                note: `AI upheld downvote: wager ${review.wager} returned`,
             });
             await reviewer.save();
 
-            review.tokensTransferred = taskLoss;
+            // Reviewee loses tokens earned from the task + reputation hit
+            const tokenLoss = task.reward;
+            reviewee.tokenBalance = Math.max(0, reviewee.tokenBalance - tokenLoss);
+            reviewee.stats.tokensLost += tokenLoss;
+            reviewee.stats.downvotesLost += 1;
 
-            // Update proficiency
+            // Reputation penalty: loss = ceil(5 + √rep × 2)
+            const repLoss = reviewee.applyReputationPenalty();
+
+            await TokenLedger.create({
+                userId: reviewee._id, taskId: task._id, type: 'peer_penalty',
+                amount: -tokenLoss, balanceAfter: reviewee.tokenBalance,
+                note: `AI ruled solution wrong: lost ${tokenLoss} tokens (task reward) + ${repLoss} reputation for "${task.title}"`,
+            });
+            await reviewee.save();
+
+            review.tokensTransferred = tokenLoss;
+
             const prof = await getOrCreateProficiency(reviewee._id, task.course);
             prof.downvotesLost += 1;
             prof.recalculate();
             await prof.save();
         } else {
-            // ── AI sided with reviewee ──────────────────────
+            /* ── AI sided with reviewee ─────────────────────── */
             review.disputeStatus = 'resolved_reviewee_wins';
             review.settled = true;
 
-            // Downvoter loses their wager permanently
+            // Reviewer loses wager permanently
             await TokenLedger.create({
                 userId: reviewer._id, taskId: task._id, type: 'peer_penalty',
                 amount: 0, balanceAfter: reviewer.tokenBalance,
-                note: `AI ruled reviewee correct: wager of ${review.wager} forfeited`,
+                note: `AI ruled solution correct: wager of ${review.wager} forfeited`,
             });
 
-            // Reviewee defended successfully
             reviewee.stats.downvotesDefended += 1;
             reviewee.recalculateReputation();
             await reviewee.save();
 
             review.tokensTransferred = 0;
 
-            // Update proficiency
             const prof = await getOrCreateProficiency(reviewee._id, task.course);
             prof.downvotesDefended += 1;
             prof.recalculate();
@@ -534,9 +532,8 @@ export const respondToDownvote = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: `AI arbitration complete. Decision: ${verdict.decision === 'downvoter_correct' ? 'Downvoter was correct' : 'Your solution was valid'}`,
+            message: `AI arbitration complete. ${verdict.decision === 'downvoter_correct' ? 'The downvoter was correct.' : 'Your solution was valid.'}`,
             data: {
-                reviewId: review._id,
                 disputeStatus: review.disputeStatus,
                 aiVerdict: review.aiVerdict,
                 tokensTransferred: review.tokensTransferred,
@@ -548,58 +545,41 @@ export const respondToDownvote = async (req, res) => {
     }
 };
 
-/**
- * GET /api/reviews/my-reviews
- * List reviews the current user has given.
- */
+/* ────────────────────────────────────────────────────────────────
+   GET /api/reviews/my-reviews
+   ──────────────────────────────────────────────────────────────── */
 export const getMyReviews = async (req, res) => {
     try {
         const userId = req.user.id;
-        const page = parseInt(req.query.page, 10) || 1;
         const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
 
-        const reviews = await PeerReview.find({ reviewer: userId })
+        const reviews = await PeerReview.find({ reviewer: userId, type: { $ne: 'pending' } })
             .populate('reviewee', 'name email')
             .populate('task', 'title topic difficulty')
             .sort({ createdAt: -1 })
-            .skip((page - 1) * limit)
             .limit(limit);
 
-        const total = await PeerReview.countDocuments({ reviewer: userId });
-
-        return res.status(200).json({
-            success: true,
-            count: reviews.length,
-            total,
-            page,
-            data: reviews,
-        });
+        return res.status(200).json({ success: true, count: reviews.length, data: reviews });
     } catch (err) {
         console.error('❌ getMyReviews:', err.message);
         return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
-/**
- * GET /api/reviews/received
- * List reviews the current user has received (on their submissions).
- */
+/* ────────────────────────────────────────────────────────────────
+   GET /api/reviews/received
+   ──────────────────────────────────────────────────────────────── */
 export const getReceivedReviews = async (req, res) => {
     try {
         const userId = req.user.id;
-        const page = parseInt(req.query.page, 10) || 1;
         const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
 
-        const reviews = await PeerReview.find({ reviewee: userId })
+        const reviews = await PeerReview.find({ reviewee: userId, type: { $ne: 'pending' } })
             .populate('reviewer', 'name email')
-            .populate('task', 'title topic difficulty')
+            .populate('task', 'title topic difficulty tokenStake reward')
             .sort({ createdAt: -1 })
-            .skip((page - 1) * limit)
             .limit(limit);
 
-        const total = await PeerReview.countDocuments({ reviewee: userId });
-
-        // Count pending disputes
         const pendingDisputes = await PeerReview.countDocuments({
             reviewee: userId,
             disputeStatus: 'pending_response',
@@ -608,9 +588,7 @@ export const getReceivedReviews = async (req, res) => {
         return res.status(200).json({
             success: true,
             count: reviews.length,
-            total,
             pendingDisputes,
-            page,
             data: reviews,
         });
     } catch (err) {

@@ -27,11 +27,11 @@ export const registerRules = [
             return true;
         }),
     body('password').isLength({ min: 6 }).withMessage('Password must be ≥6 characters'),
-    body('studentId').optional().trim().notEmpty().withMessage('studentId cannot be empty if provided'),
-    body('department').optional().trim(),
-    body('semester').optional().isInt({ min: 1, max: 8 }).withMessage('Semester must be 1-8'),
-    body('year').optional().isInt({ min: 2000 }).withMessage('Valid year required'),
-    body('university').optional().trim(),
+    body('studentId').optional({ values: 'falsy' }).trim().notEmpty().withMessage('studentId cannot be empty if provided'),
+    body('department').optional({ values: 'falsy' }).trim(),
+    body('semester').optional({ values: 'falsy' }).isInt({ min: 1, max: 8 }).withMessage('Semester must be 1-8'),
+    body('year').optional({ values: 'falsy' }).isInt({ min: 2000 }).withMessage('Valid year required'),
+    body('university').optional({ values: 'falsy' }).trim(),
 ];
 
 export const loginRules = [
@@ -91,20 +91,17 @@ export const chatMessageRules = [
 
 // ── Peer Review Validation ─────────────────────────────────────────
 
-export const peerReviewRules = [
+export const unlockRules = [
     body('taskId').isMongoId().withMessage('Valid taskId required'),
     body('revieweeId').isMongoId().withMessage('Valid revieweeId required'),
     body('wager').isInt({ min: 1 }).withMessage('Wager must be at least 1 token'),
 ];
 
-export const downvoteRules = [
-    body('taskId').isMongoId().withMessage('Valid taskId required'),
-    body('revieweeId').isMongoId().withMessage('Valid revieweeId required'),
-    body('wager').isInt({ min: 1 }).withMessage('Wager must be at least 1 token'),
+export const voteRules = [
+    body('type').isIn(['upvote', 'downvote']).withMessage('Type must be upvote or downvote'),
     body('reason')
+        .optional()
         .trim()
-        .notEmpty()
-        .withMessage('Reason is required for downvotes')
         .isLength({ min: 10, max: 2000 })
         .withMessage('Reason must be 10-2000 characters'),
 ];
@@ -113,6 +110,20 @@ export const disputeRules = [
     body('action')
         .isIn(['agree', 'disagree'])
         .withMessage('Action must be "agree" or "disagree"'),
+];
+
+// ── Complaint Validation ───────────────────────────────────────────
+
+export const complaintRules = [
+    body('courseId').isMongoId().withMessage('Valid courseId required'),
+    body('type')
+        .isIn(['false_announcement', 'missing_announcement'])
+        .withMessage('Type must be false_announcement or missing_announcement'),
+    body('description')
+        .optional()
+        .trim()
+        .isLength({ max: 1000 })
+        .withMessage('Description must be ≤1000 characters'),
 ];
 
 // ── Direct Chat Validation ─────────────────────────────────────────
