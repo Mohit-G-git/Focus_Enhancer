@@ -420,7 +420,7 @@ export async function deleteConversation(userId, conversationId) {
     const conversation = await Conversation.findOneAndUpdate(
         { _id: conversationId, user: userId },
         { isActive: false },
-        { new: true }
+        { returnDocument: 'after' }
     );
     if (!conversation) throw new Error('Conversation not found');
     return { deleted: true };

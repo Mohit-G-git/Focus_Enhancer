@@ -34,9 +34,10 @@ describe('Chat Routes', () => {
        ═══════════════════════════════════════════════════════════ */
     describe('POST /api/chat/message', () => {
         it('sends a message and gets a response (new conversation)', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Hello, help me study' });
 
             expect(res.status).toBe(200);
@@ -48,9 +49,10 @@ describe('Chat Routes', () => {
         });
 
         it('creates a Conversation document', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Explain binary trees' });
 
             const conv = await Conversation.findById(res.body.data.conversationId);
@@ -61,16 +63,18 @@ describe('Chat Routes', () => {
         });
 
         it('continues existing conversation', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
 
             // First message creates conversation
             const res1 = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Hi' });
 
             // Second message continues it
             const res2 = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({
                     userId: user._id.toString(),
                     message: 'Tell me more',
@@ -85,9 +89,10 @@ describe('Chat Routes', () => {
         });
 
         it('detects mood from message', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'I feel so stressed and anxious about exams' });
 
             // mood should be stress-related
@@ -95,18 +100,20 @@ describe('Chat Routes', () => {
         });
 
         it('detects academic category', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Can you explain the algorithm for binary search?' });
 
             expect(res.body.data.category).toBe('academic');
         });
 
         it('saves mood to user wellbeing history', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'I feel sad and lonely today' });
 
             const updated = await User.findById(user._id);
@@ -114,30 +121,33 @@ describe('Chat Routes', () => {
             expect(updated.wellbeing.lastChatAt).toBeTruthy();
         });
 
-        it('requires userId', async () => {
+        it('requires auth token', async () => {
             const res = await request(app)
                 .post('/api/chat/message')
                 .send({ message: 'Hello' });
 
-            expect(res.status).toBe(400);
-            expect(res.body.message).toMatch(/userId required/i);
+            expect(res.status).toBe(401);
         });
 
         it('requires message', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: '' });
 
             expect(res.status).toBe(400);
         });
 
-        it('returns 404 for non-existent user', async () => {
+        it('ignores body userId and uses auth user', async () => {
+            const { token } = await seedChatUser();
             const res = await request(app)
                 .post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: oid().toString(), message: 'Hello' });
 
-            expect(res.status).toBe(404);
+            // protect middleware sets req.user.id from JWT, body userId is ignored
+            expect(res.status).toBe(200);
         });
     });
 
@@ -146,16 +156,19 @@ describe('Chat Routes', () => {
        ═══════════════════════════════════════════════════════════ */
     describe('GET /api/chat/conversations', () => {
         it('lists conversations for a user', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
 
             // Create 2 conversations
             await request(app).post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'First chat' });
             await request(app).post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Second chat' });
 
             const res = await request(app)
-                .get(`/api/chat/conversations?userId=${user._id}`);
+                .get(`/api/chat/conversations?userId=${user._id}`)
+                .set('Authorization', `Bearer ${token}`);
 
             expect(res.status).toBe(200);
             expect(res.body.count).toBe(2);
@@ -165,17 +178,18 @@ describe('Chat Routes', () => {
         });
 
         it('returns empty array for user with no conversations', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
-                .get(`/api/chat/conversations?userId=${user._id}`);
+                .get(`/api/chat/conversations?userId=${user._id}`)
+                .set('Authorization', `Bearer ${token}`);
 
             expect(res.status).toBe(200);
             expect(res.body.count).toBe(0);
         });
 
-        it('requires userId', async () => {
+        it('requires auth', async () => {
             const res = await request(app).get('/api/chat/conversations');
-            expect(res.status).toBe(400);
+            expect(res.status).toBe(401);
         });
     });
 
@@ -184,12 +198,14 @@ describe('Chat Routes', () => {
        ═══════════════════════════════════════════════════════════ */
     describe('GET /api/chat/conversations/:id', () => {
         it('returns full conversation history', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const msg = await request(app).post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Hello buddy' });
 
             const res = await request(app)
-                .get(`/api/chat/conversations/${msg.body.data.conversationId}?userId=${user._id}`);
+                .get(`/api/chat/conversations/${msg.body.data.conversationId}?userId=${user._id}`)
+                .set('Authorization', `Bearer ${token}`);
 
             expect(res.status).toBe(200);
             expect(res.body.data).toHaveProperty('messages');
@@ -199,15 +215,16 @@ describe('Chat Routes', () => {
         });
 
         it('returns 404 for non-existent conversation', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
-                .get(`/api/chat/conversations/${oid()}?userId=${user._id}`);
+                .get(`/api/chat/conversations/${oid()}?userId=${user._id}`)
+                .set('Authorization', `Bearer ${token}`);
             expect(res.status).toBe(404);
         });
 
-        it('requires userId', async () => {
+        it('requires auth', async () => {
             const res = await request(app).get(`/api/chat/conversations/${oid()}`);
-            expect(res.status).toBe(400);
+            expect(res.status).toBe(401);
         });
     });
 
@@ -216,12 +233,14 @@ describe('Chat Routes', () => {
        ═══════════════════════════════════════════════════════════ */
     describe('DELETE /api/chat/conversations/:id', () => {
         it('soft-deletes a conversation', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const msg = await request(app).post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Delete me' });
 
             const res = await request(app)
                 .delete(`/api/chat/conversations/${msg.body.data.conversationId}`)
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString() });
 
             expect(res.status).toBe(200);
@@ -233,24 +252,28 @@ describe('Chat Routes', () => {
         });
 
         it('returns 404 for non-existent conversation', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const res = await request(app)
                 .delete(`/api/chat/conversations/${oid()}`)
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString() });
             expect(res.status).toBe(404);
         });
 
         it('deleted conversation does not appear in list', async () => {
-            const { user } = await seedChatUser();
+            const { user, token } = await seedChatUser();
             const msg = await request(app).post('/api/chat/message')
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString(), message: 'Vanish' });
 
             await request(app)
                 .delete(`/api/chat/conversations/${msg.body.data.conversationId}`)
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString() });
 
             const res = await request(app)
-                .get(`/api/chat/conversations?userId=${user._id}`);
+                .get(`/api/chat/conversations?userId=${user._id}`)
+                .set('Authorization', `Bearer ${token}`);
             expect(res.body.count).toBe(0);
         });
     });

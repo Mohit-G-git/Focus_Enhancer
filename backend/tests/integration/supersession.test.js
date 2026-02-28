@@ -189,7 +189,7 @@ describe('Task Supersession', () => {
 
             // Create a student with an active quiz on old task[0]
             const student = await User.create({
-                name: 'Active Student', email: `active${Date.now()}@test.edu`,
+                name: 'Active Student', email: `active${Date.now()}@iitj.ac.in`,
                 passwordHash: 'hash123', tokenBalance: 100,
             });
 
@@ -260,9 +260,10 @@ describe('Task Supersession', () => {
             today.setHours(0, 0, 0, 0);
 
             const student = await User.create({
-                name: 'Filter Student', email: `filter${Date.now()}@test.edu`,
+                name: 'Filter Student', email: `filter${Date.now()}@iitj.ac.in`,
                 passwordHash: 'hash', tokenBalance: 100,
             });
+            const studentToken = generateToken(student._id, 'student');
 
             await Task.insertMany([
                 {
@@ -298,26 +299,29 @@ describe('Task Supersession', () => {
                 },
             ]);
 
-            return { course, student };
+            return { course, student, studentToken };
         }
 
         it('GET /api/tasks/course/:id excludes superseded by default', async () => {
-            const { course } = await seedWithSuperseded();
-            const res = await request(app).get(`/api/tasks/course/${course._id}`);
+            const { course, studentToken } = await seedWithSuperseded();
+            const res = await request(app).get(`/api/tasks/course/${course._id}`)
+                .set('Authorization', `Bearer ${studentToken}`);
             expect(res.status).toBe(200);
             expect(res.body.data.every((t) => t.status !== 'superseded')).toBe(true);
             expect(res.body.count).toBe(3); // active + 2 assigned (superseded excluded)
         });
 
         it('GET /api/tasks/course/:id includes superseded when requested', async () => {
-            const { course } = await seedWithSuperseded();
-            const res = await request(app).get(`/api/tasks/course/${course._id}?includeSuperseded=true`);
+            const { course, studentToken } = await seedWithSuperseded();
+            const res = await request(app).get(`/api/tasks/course/${course._id}?includeSuperseded=true`)
+                .set('Authorization', `Bearer ${studentToken}`);
             expect(res.body.count).toBe(4); // all 4
         });
 
         it('GET /api/tasks/course/:id filters by userId + assignedTo', async () => {
-            const { course, student } = await seedWithSuperseded();
-            const res = await request(app).get(`/api/tasks/course/${course._id}?userId=${student._id}`);
+            const { course, student, studentToken } = await seedWithSuperseded();
+            const res = await request(app).get(`/api/tasks/course/${course._id}?userId=${student._id}`)
+                .set('Authorization', `Bearer ${studentToken}`);
             // Should see: active (null assignedTo) + assigned to student. NOT: superseded, NOT: assigned to other
             expect(res.body.count).toBe(2);
             expect(res.body.data.some((t) => t.title === 'Active Task')).toBe(true);
@@ -325,14 +329,16 @@ describe('Task Supersession', () => {
         });
 
         it('GET /api/tasks/today/:id excludes superseded', async () => {
-            const { course } = await seedWithSuperseded();
-            const res = await request(app).get(`/api/tasks/today/${course._id}`);
+            const { course, studentToken } = await seedWithSuperseded();
+            const res = await request(app).get(`/api/tasks/today/${course._id}`)
+                .set('Authorization', `Bearer ${studentToken}`);
             expect(res.body.data.every((t) => t.status !== 'superseded')).toBe(true);
         });
 
         it('GET /api/tasks/today/:id filters by userId + assignedTo', async () => {
-            const { course, student } = await seedWithSuperseded();
-            const res = await request(app).get(`/api/tasks/today/${course._id}?userId=${student._id}`);
+            const { course, student, studentToken } = await seedWithSuperseded();
+            const res = await request(app).get(`/api/tasks/today/${course._id}?userId=${student._id}`)
+                .set('Authorization', `Bearer ${studentToken}`);
             expect(res.body.count).toBe(2);
             const titles = res.body.data.map((t) => t.title);
             expect(titles).toContain('Active Task');
@@ -341,8 +347,9 @@ describe('Task Supersession', () => {
         });
 
         it('GET /api/tasks/schedule/:id excludes superseded', async () => {
-            const { course } = await seedWithSuperseded();
-            const res = await request(app).get(`/api/tasks/schedule/${course._id}`);
+            const { course, studentToken } = await seedWithSuperseded();
+            const res = await request(app).get(`/api/tasks/schedule/${course._id}`)
+                .set('Authorization', `Bearer ${studentToken}`);
             const allTasks = res.body.data.flatMap((day) => day.tasks);
             expect(allTasks.every((t) => t.status !== 'superseded')).toBe(true);
         });
@@ -354,7 +361,7 @@ describe('Task Supersession', () => {
     describe('Quiz superseded guard', () => {
         it('rejects starting a quiz on a superseded task', async () => {
             const user = await User.create({
-                name: 'Quiz Guard', email: `qg${Date.now()}@test.edu`,
+                name: 'Quiz Guard', email: `qg${Date.now()}@iitj.ac.in`,
                 passwordHash: 'hash', tokenBalance: 100,
             });
             const course = await Course.create({
@@ -385,7 +392,7 @@ describe('Task Supersession', () => {
 
         it('allows starting quiz on non-superseded task', async () => {
             const user = await User.create({
-                name: 'Quiz OK', email: `qok${Date.now()}@test.edu`,
+                name: 'Quiz OK', email: `qok${Date.now()}@iitj.ac.in`,
                 passwordHash: 'hash', tokenBalance: 100,
             });
             const course = await Course.create({

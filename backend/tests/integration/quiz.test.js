@@ -146,14 +146,13 @@ describe('Quiz Routes', () => {
             expect(res.status).toBe(404);
         });
 
-        it('requires userId', async () => {
+        it('requires auth token', async () => {
             const { task } = await seedQuiz();
             const res = await request(app)
                 .post(`/api/quiz/${task._id}/start`)
                 .send({});
 
-            expect(res.status).toBe(400);
-            expect(res.body.message).toMatch(/userId required/i);
+            expect(res.status).toBe(401);
         });
     });
 
@@ -481,6 +480,7 @@ describe('Quiz Routes', () => {
 
             const res = await request(app)
                 .post(`/api/quiz/${task._id}/submit-theory`)
+                .set('Authorization', `Bearer ${token}`)
                 .field('userId', user._id.toString())
                 .attach('solutions', createFakePdfBuffer(), 'solutions.pdf');
 
@@ -502,6 +502,7 @@ describe('Quiz Routes', () => {
 
             const res = await request(app)
                 .post(`/api/quiz/${task._id}/submit-theory`)
+                .set('Authorization', `Bearer ${token}`)
                 .field('userId', user._id.toString())
                 .attach('solutions', createFakePdfBuffer(), 'solutions.pdf');
 
@@ -526,6 +527,7 @@ describe('Quiz Routes', () => {
 
             const res = await request(app)
                 .post(`/api/quiz/${task._id}/submit-theory`)
+                .set('Authorization', `Bearer ${token}`)
                 .send({ userId: user._id.toString() });
 
             expect(res.status).toBe(400);

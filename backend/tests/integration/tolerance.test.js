@@ -239,7 +239,7 @@ describe('Tolerance System — Integration', () => {
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
             const user = await User.create({
-                name: 'Absent Alice', email: 'alice@test.edu',
+                name: 'Absent Alice', email: 'alice@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 100,
                 streak: { currentDays: 0, longestStreak: 3, lastActiveDate: thirtyDaysAgo },
@@ -266,7 +266,7 @@ describe('Tolerance System — Integration', () => {
             yesterday.setDate(yesterday.getDate() - 1);
 
             await User.create({
-                name: 'Active Bob', email: 'bob@test.edu',
+                name: 'Active Bob', email: 'bob@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 100,
                 streak: { currentDays: 5, longestStreak: 10, lastActiveDate: yesterday },
@@ -281,7 +281,7 @@ describe('Tolerance System — Integration', () => {
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
             await User.create({
-                name: 'Broke Charlie', email: 'charlie@test.edu',
+                name: 'Broke Charlie', email: 'charlie@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 0,
                 streak: { currentDays: 0, longestStreak: 0, lastActiveDate: thirtyDaysAgo },
@@ -294,7 +294,7 @@ describe('Tolerance System — Integration', () => {
 
         it('skips users with no login history', async () => {
             await User.create({
-                name: 'Never Logged In', email: 'never@test.edu',
+                name: 'Never Logged In', email: 'never@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 100,
             });
@@ -308,7 +308,7 @@ describe('Tolerance System — Integration', () => {
             tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
 
             const user = await User.create({
-                name: 'Double Dana', email: 'dana@test.edu',
+                name: 'Double Dana', email: 'dana@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 100,
                 streak: { currentDays: 0, longestStreak: 0, lastActiveDate: tenDaysAgo },
@@ -332,7 +332,7 @@ describe('Tolerance System — Integration', () => {
 
             // User A: streak 0, cap 2 → 8 days absent → 6 days over → penalised
             const userA = await User.create({
-                name: 'Low Streak', email: 'low@test.edu',
+                name: 'Low Streak', email: 'low@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 100,
                 streak: { currentDays: 0, longestStreak: 0, lastActiveDate: eightDaysAgo },
@@ -340,7 +340,7 @@ describe('Tolerance System — Integration', () => {
 
             // User B: streak 14, cap 10 → 8 days absent → within tolerance
             const userB = await User.create({
-                name: 'High Streak', email: 'high@test.edu',
+                name: 'High Streak', email: 'high@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 100,
                 streak: { currentDays: 0, longestStreak: 14, lastActiveDate: eightDaysAgo },
@@ -405,7 +405,7 @@ describe('Tolerance System — Integration', () => {
             startDate.setDate(startDate.getDate() - 5); // 5 days ago
 
             const user = await User.create({
-                name: 'Bleed Test', email: 'bleed@test.edu',
+                name: 'Bleed Test', email: 'bleed@iitj.ac.in',
                 passwordHash: 'password123',
                 tokenBalance: 500,
                 streak: { currentDays: 0, longestStreak: 0, lastActiveDate: startDate },

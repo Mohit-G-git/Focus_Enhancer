@@ -14,6 +14,11 @@ export const register = async (req, res) => {
             studentId, department, semester, year, university,
         } = req.body;
 
+        // Only accept @iitj.ac.in emails
+        if (!email || !email.toLowerCase().endsWith('@iitj.ac.in')) {
+            return res.status(400).json({ success: false, message: 'Only @iitj.ac.in email addresses are allowed' });
+        }
+
         const exists = await User.findOne({ email });
         if (exists) {
             return res.status(409).json({ success: false, message: 'Email already registered' });
@@ -133,6 +138,7 @@ export const login = async (req, res) => {
 /**
  * GET /api/auth/me
  * Returns current user's full profile (requires JWT).
+ * Includes crForCourses — list of course IDs this user is CR for (CR stays anonymous to others).
  */
 export const getMe = async (req, res) => {
     try {
@@ -140,7 +146,18 @@ export const getMe = async (req, res) => {
             .populate('enrolledCourses', 'courseCode title creditWeight durationType currentChapterIndex chapters');
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        return res.status(200).json({ success: true, data: user });
+        // Find which courses this user is CR for (without exposing CR identity to others)
+        let crForCourses = [];
+        if (user.role === 'cr' || user.role === 'admin') {
+            const Course = (await import('../models/Course.js')).default;
+            const crCourses = await Course.find({ courseRep: user._id }).select('_id courseCode');
+            crForCourses = crCourses.map((c) => ({ _id: c._id, courseCode: c.courseCode }));
+        }
+
+        const userData = user.toJSON();
+        userData.crForCourses = crForCourses;
+
+        return res.status(200).json({ success: true, data: userData });
     } catch (err) {
         console.error('❌ getMe:', err.message);
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -175,7 +192,7 @@ export const updateProfile = async (req, res) => {
         }
 
         const user = await User.findByIdAndUpdate(req.user.id, updates, {
-            new: true,
+            returnDocument: 'after',
             runValidators: true,
         }).populate('enrolledCourses', 'courseCode title creditWeight durationType');
 

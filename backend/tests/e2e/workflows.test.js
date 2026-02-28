@@ -112,7 +112,8 @@ describe('E2E Workflows', () => {
         expect(annRes.body.data.tasks.length).toBeGreaterThanOrEqual(3);
 
         // ── Step 5: Verify tasks in DB ──────────────────────
-        const tasksRes = await request(app).get(`/api/tasks/course/${courseId}`);
+        const tasksRes = await request(app).get(`/api/tasks/course/${courseId}`)
+            .set('Authorization', `Bearer ${crToken}`);
         expect(tasksRes.status).toBe(200);
         expect(tasksRes.body.count).toBeGreaterThanOrEqual(3);
 
@@ -129,7 +130,8 @@ describe('E2E Workflows', () => {
         expect(enrollRes.status).toBe(200);
 
         // ── Step 8: Student views today's tasks ─────────────
-        const todayRes = await request(app).get(`/api/tasks/today/${courseId}`);
+        const todayRes = await request(app).get(`/api/tasks/today/${courseId}`)
+            .set('Authorization', `Bearer ${studentToken}`);
         expect(todayRes.status).toBe(200);
 
         // ── Step 9: Student starts quiz on first task ───────
@@ -272,6 +274,7 @@ describe('E2E Workflows', () => {
 
         // ── First message → new conversation ────────────────
         const msg1 = await request(app).post('/api/chat/message')
+            .set('Authorization', `Bearer ${token}`)
             .send({ userId: user._id.toString(), message: 'I feel stressed about my exams' });
         expect(msg1.status).toBe(200);
         expect(msg1.body.data.conversationId).toBeTruthy();
@@ -281,27 +284,32 @@ describe('E2E Workflows', () => {
 
         // ── Second message → continue conversation ──────────
         const msg2 = await request(app).post('/api/chat/message')
+            .set('Authorization', `Bearer ${token}`)
             .send({ userId: user._id.toString(), message: 'Can you explain binary trees?', conversationId: convId });
         expect(msg2.status).toBe(200);
         expect(msg2.body.data.conversationId).toBe(convId);
 
         // ── Verify conversation has 4 messages (2 user + 2 bot)
         const conv = await request(app)
-            .get(`/api/chat/conversations/${convId}?userId=${user._id}`);
+            .get(`/api/chat/conversations/${convId}?userId=${user._id}`)
+            .set('Authorization', `Bearer ${token}`);
         expect(conv.body.data.messages.length).toBe(4);
 
         // ── List conversations ──────────────────────────────
         const list = await request(app)
-            .get(`/api/chat/conversations?userId=${user._id}`);
+            .get(`/api/chat/conversations?userId=${user._id}`)
+            .set('Authorization', `Bearer ${token}`);
         expect(list.body.count).toBe(1);
 
         // ── Delete conversation ─────────────────────────────
         await request(app)
             .delete(`/api/chat/conversations/${convId}`)
+            .set('Authorization', `Bearer ${token}`)
             .send({ userId: user._id.toString() });
 
         const listAfter = await request(app)
-            .get(`/api/chat/conversations?userId=${user._id}`);
+            .get(`/api/chat/conversations?userId=${user._id}`)
+            .set('Authorization', `Bearer ${token}`);
         expect(listAfter.body.count).toBe(0);
     }, 30_000);
 
@@ -343,7 +351,8 @@ describe('E2E Workflows', () => {
         }
 
         // All students see the same tasks
-        const tasks1 = await request(app).get(`/api/tasks/course/${courseId}`);
+        const tasks1 = await request(app).get(`/api/tasks/course/${courseId}`)
+            .set('Authorization', `Bearer ${students[0]}`);
         expect(tasks1.body.count).toBeGreaterThanOrEqual(1);
 
         // Verify enrollment count via DB

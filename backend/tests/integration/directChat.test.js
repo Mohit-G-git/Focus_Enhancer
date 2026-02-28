@@ -12,7 +12,7 @@ const app = createApp();
 async function seedUser(overrides = {}) {
     const base = {
         name: `User_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        email: `u${Date.now()}${Math.random().toString(36).slice(2, 6)}@test.edu`,
+        email: `u${Date.now()}${Math.random().toString(36).slice(2, 6)}@iitj.ac.in`,
         passwordHash: 'password123',
         tokenBalance: 100,
     };
@@ -85,7 +85,7 @@ describe('Direct Chat System', () => {
                 Array.from({ length: 25 }, (_, i) =>
                     User.create({
                         name: `${prefix}_${i}`,
-                        email: `${prefix.toLowerCase()}_${i}@test.edu`,
+                        email: `${prefix.toLowerCase()}_${i}@iitj.ac.in`,
                         passwordHash: 'password123',
                     }),
                 ),

@@ -43,10 +43,10 @@ export function createApp() {
 
     app.use('/api/auth', authRoutes);
     app.use('/api/courses', courseRoutes);
-    app.use('/api/tasks', taskRoutes);
+    app.use('/api/tasks', protect, taskRoutes);
     app.use('/api/announcements', announcementRoutes);
-    app.use('/api/quiz', quizRoutes);
-    app.use('/api/chat', chatRoutes);
+    app.use('/api/quiz', protect, quizRoutes);
+    app.use('/api/chat', protect, chatRoutes);
     app.use('/api/theory', theoryRoutes);
     app.use('/api/reviews', reviewRoutes);
     app.use('/api/leaderboard', leaderboardRoutes);
@@ -81,7 +81,7 @@ export function makeUser(overrides = {}) {
     const n = uid();
     return {
         name: `Test User ${n}`,
-        email: `user${n}@test.edu`,
+        email: `user${n}@iitj.ac.in`,
         password: 'password123',
         role: 'student',
         ...overrides,

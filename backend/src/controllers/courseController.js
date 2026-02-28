@@ -66,14 +66,21 @@ export const getCourses = async (req, res) => {
         if (req.query.year) filter.year = parseInt(req.query.year, 10);
 
         const courses = await Course.find(filter)
-            .populate('courseRep', 'name email')
             .select('-enrolledStudents')
             .sort({ courseCode: 1 });
 
+        // CR stays anonymous — only expose whether a CR exists
+        const sanitized = courses.map((c) => {
+            const obj = c.toJSON();
+            obj.hasCR = !!obj.courseRep;
+            delete obj.courseRep;
+            return obj;
+        });
+
         return res.status(200).json({
             success: true,
-            count: courses.length,
-            data: courses,
+            count: sanitized.length,
+            data: sanitized,
         });
     } catch (err) {
         console.error('❌ getCourses:', err.message);
@@ -87,21 +94,25 @@ export const getCourses = async (req, res) => {
  */
 export const getCourse = async (req, res) => {
     try {
-        let query = Course.findById(req.params.courseId)
-            .populate('courseRep', 'name email');
-
-        const course = await query;
+        const course = await Course.findById(req.params.courseId);
         if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
 
         const data = course.toJSON();
+        const userId = req.user?.id;
+        const isCR = userId && course.courseRep?.toString() === userId;
+
+        // CR stays anonymous — only the CR themselves see their status
+        data.hasCR = !!data.courseRep;
+        data.isMeCR = isCR;
+        delete data.courseRep;
 
         // Only the course CR sees the enrolled students list
-        const userId = req.user?.id;
-        if (!userId || course.courseRep?.toString() !== userId) {
+        if (!isCR) {
             delete data.enrolledStudents;
             data.enrolledCount = course.enrolledStudents?.length || 0;
         } else {
             await course.populate('enrolledStudents', 'name email studentId department');
+            data.enrolledStudents = course.enrolledStudents;
         }
 
         return res.status(200).json({ success: true, data });

@@ -189,6 +189,10 @@ export const sendMessage = async (req, res) => {
         }
 
         convo.messages.push({ sender: userId, content });
+        // Cap at 500 messages (FIFO) to prevent unbounded document growth
+        if (convo.messages.length > 500) {
+            convo.messages = convo.messages.slice(-500);
+        }
         await convo.save();
 
         const newMsg = convo.messages[convo.messages.length - 1];
@@ -235,7 +239,8 @@ export const listConversations = async (req, res) => {
         const userId = req.user.id;
         const filter = { participants: userId };
 
-        if (req.query.status) {
+        const allowedStatuses = ['requested', 'active', 'ended'];
+        if (req.query.status && allowedStatuses.includes(req.query.status)) {
             filter.status = req.query.status;
         }
 
@@ -295,7 +300,8 @@ export const searchUsers = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Search query must be at least 2 characters' });
         }
 
-        const regex = new RegExp(q.trim(), 'i');
+        const escaped = q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
         const users = await User.find({
             _id: { $ne: userId },
             $or: [{ name: regex }, { email: regex }],

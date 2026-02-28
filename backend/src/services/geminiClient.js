@@ -98,7 +98,8 @@ export async function chatCompletion(systemPrompt, chatHistory, tag = 'Chatbot')
     let lastErr;
 
     const lastUserMsg = chatHistory[chatHistory.length - 1];
-    const history = chatHistory.map((m) => ({
+    // Exclude the last message — it will be sent via sendMessage()
+    const history = chatHistory.slice(0, -1).map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
     }));
