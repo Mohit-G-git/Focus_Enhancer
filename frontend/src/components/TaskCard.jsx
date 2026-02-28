@@ -2,7 +2,7 @@ import { Clock, Zap, BookOpen, ChevronRight } from 'lucide-react';
 import { difficultyColor } from '../utils/helpers';
 
 export default function TaskCard({ task, onClick }) {
-    const done = task.completed || task.passed;
+    const done = task.status === 'completed';
     const diffClr = difficultyColor(task.difficulty);
 
     return (

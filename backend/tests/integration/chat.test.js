@@ -21,7 +21,7 @@ const oid = () => new mongoose.Types.ObjectId();
 /* ── Seed: student user with token ──────────────────────────── */
 async function seedChatUser() {
     const user = await User.create({
-        name: 'Chat Student', email: `chat${Date.now()}@test.edu`,
+        name: 'Chat Student', email: `chat${Date.now()}@iitj.ac.in`,
         passwordHash: 'password123', tokenBalance: 100,
     });
     const token = generateToken(user._id, 'student');

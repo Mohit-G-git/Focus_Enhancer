@@ -54,7 +54,7 @@ describe('Direct Chat System', () => {
         });
 
         it('finds users by email', async () => {
-            const uniqueEmail = `findme_${Date.now()}@special.edu`;
+            const uniqueEmail = `findme_${Date.now()}@iitj.ac.in`;
             await seedUser({ email: uniqueEmail });
             const { token } = await seedUser();
 

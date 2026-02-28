@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Play, Coffee, Brain, FileText, CheckCircle, Timer, Zap } from 'lucide-react';
 import { formatTime, playAlertSound } from '../utils/helpers';
 import QuizModal from './QuizModal';
@@ -9,20 +9,16 @@ const BREAK_SEC = 300;
 
 export default function TaskPopup({ task, onClose }) {
     const lsKey = `taskpopup_${task._id}`;
-    const saved = useRef(null);
-    try { saved.current = JSON.parse(localStorage.getItem(lsKey)); } catch { }
 
-    const [phase, setPhase] = useState(saved.current?.phase || PHASES.IDLE);
-    const [studyLeft, setStudyLeft] = useState(saved.current?.studyLeft ?? task.durationHours * 3600);
-    const [breakLeft, setBreakLeft] = useState(saved.current?.breakLeft ?? BREAK_SEC);
+    // Always start fresh from IDLE — study timer → break → quiz → theory
+    // Clear any stale saved state on open
+    useEffect(() => { localStorage.removeItem(lsKey); }, [lsKey]);
+
+    const [phase, setPhase] = useState(PHASES.IDLE);
+    const [studyLeft, setStudyLeft] = useState(Math.round(task.durationHours * 3600));
+    const [breakLeft, setBreakLeft] = useState(BREAK_SEC);
     const [running, setRunning] = useState(false);
     const intervalRef = useRef(null);
-
-    const persist = useCallback(() => {
-        localStorage.setItem(lsKey, JSON.stringify({ phase, studyLeft, breakLeft }));
-    }, [phase, studyLeft, breakLeft, lsKey]);
-
-    useEffect(() => { persist(); }, [persist]);
 
     useEffect(() => {
         if (!running) return;
@@ -39,7 +35,7 @@ export default function TaskPopup({ task, onClose }) {
     const start = () => { setPhase(PHASES.STUDY); setRunning(true); };
     const startBreak = () => { setPhase(PHASES.BREAK); setRunning(true); };
     const skipBreak = () => { setPhase(PHASES.QUIZ); };
-    const handleQuizDone = () => { setPhase(PHASES.THEORY); };
+    const handleQuizDone = (passed) => { setPhase(passed ? PHASES.THEORY : PHASES.DONE); if (!passed) localStorage.removeItem(lsKey); };
     const handleTheoryDone = () => { setPhase(PHASES.DONE); localStorage.removeItem(lsKey); };
     const handleClose = () => { clearInterval(intervalRef.current); onClose(); };
 

@@ -25,7 +25,7 @@ async function createUsers(count) {
         users.push(
             await User.create({
                 name: `Leader ${i + 1}`,
-                email: `leader${i}_${Date.now()}@test.edu`,
+                email: `leader${i}_${Date.now()}@iitj.ac.in`,
                 passwordHash: hash,
                 tokenBalance: (count - i) * 50, // descending balance
                 reputation: (count - i) * 10,
@@ -85,15 +85,15 @@ describe('Leaderboard Routes', () => {
         it('returns students sorted by proficiency within a course', async () => {
             const hash = await bcrypt.hash('pass', 1);
             const u1 = await User.create({
-                name: 'Top Student', email: `t1_${Date.now()}@t.edu`, passwordHash: hash,
+                name: 'Top Student', email: `t1_${Date.now()}@iitj.ac.in`, passwordHash: hash,
                 tokenBalance: 100, reputation: 50,
             });
             const u2 = await User.create({
-                name: 'Mid Student', email: `t2_${Date.now()}@t.edu`, passwordHash: hash,
+                name: 'Mid Student', email: `t2_${Date.now()}@iitj.ac.in`, passwordHash: hash,
                 tokenBalance: 80, reputation: 30,
             });
             const u3 = await User.create({
-                name: 'Low Student', email: `t3_${Date.now()}@t.edu`, passwordHash: hash,
+                name: 'Low Student', email: `t3_${Date.now()}@iitj.ac.in`, passwordHash: hash,
                 tokenBalance: 60, reputation: 10,
             });
             const course = await Course.create({
@@ -159,7 +159,7 @@ describe('Leaderboard Routes', () => {
 
             for (let i = 0; i < 5; i++) {
                 const u = await User.create({
-                    name: `P${i}`, email: `p${i}_${Date.now()}@t.edu`, passwordHash: hash,
+                    name: `P${i}`, email: `p${i}_${Date.now()}@iitj.ac.in`, passwordHash: hash,
                 });
                 await CourseProficiency.create({
                     user: u._id, course: course._id,

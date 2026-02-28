@@ -3,6 +3,43 @@ import User from '../models/User.js';
 import TokenLedger from '../models/TokenLedger.js';
 
 /**
+ * GET /api/tasks
+ * Get all tasks for the authenticated user's enrolled courses.
+ * Excludes superseded. Sorted by scheduledDate.
+ */
+export const getMyTasks = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const courseIds = user.enrolledCourses || [];
+        if (courseIds.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+        }
+
+        const filter = {
+            course: { $in: courseIds },
+            status: { $ne: 'superseded' },
+        };
+
+        // Optional filters
+        if (req.query.difficulty) filter.difficulty = req.query.difficulty;
+        if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
+
+        const tasks = await Task.find(filter)
+            .populate('course', 'title courseCode creditWeight durationType')
+            .populate('announcement', 'title eventType eventDate topics')
+            .sort({ scheduledDate: 1, createdAt: -1 })
+            .limit(100);
+
+        return res.status(200).json({ success: true, count: tasks.length, data: tasks });
+    } catch (err) {
+        console.error('❌ getMyTasks:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+/**
  * GET /api/tasks/course/:courseId
  * Query params: ?difficulty=easy&type=reading&announcement=ID&date=2026-03-01&pass=1&revision=true
  */

@@ -19,7 +19,13 @@ export const validate = (req, res, next) => {
 
 export const registerRules = [
     body('name').trim().notEmpty().withMessage('Name is required'),
-    body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+    body('email').isEmail().withMessage('Valid email required')
+        .custom((val) => {
+            if (!val.toLowerCase().endsWith('@iitj.ac.in')) {
+                throw new Error('Only @iitj.ac.in email addresses are allowed');
+            }
+            return true;
+        }),
     body('password').isLength({ min: 6 }).withMessage('Password must be ≥6 characters'),
     body('studentId').optional().trim().notEmpty().withMessage('studentId cannot be empty if provided'),
     body('department').optional().trim(),
@@ -29,7 +35,7 @@ export const registerRules = [
 ];
 
 export const loginRules = [
-    body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+    body('email').isEmail().withMessage('Valid email required'),
     body('password').notEmpty().withMessage('Password is required'),
 ];
 

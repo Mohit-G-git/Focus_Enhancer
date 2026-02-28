@@ -40,7 +40,7 @@ const oid = () => new mongoose.Types.ObjectId();
 /* ── Seed helper: user + course + task ready for quiz ───────── */
 async function seedQuiz(tokenBalance = 100, tokenStake = 10) {
     const user = await User.create({
-        name: 'Quiz Student', email: `quiz${Date.now()}@test.edu`,
+        name: 'Quiz Student', email: `quiz${Date.now()}@iitj.ac.in`,
         passwordHash: 'password123', tokenBalance,
     });
     const course = await Course.create({

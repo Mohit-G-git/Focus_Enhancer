@@ -16,7 +16,7 @@ let authToken;
 async function getToken() {
     if (authToken) return authToken;
     const user = await User.create({
-        name: 'Task Viewer', email: `taskviewer${Date.now()}@test.edu`,
+        name: 'Task Viewer', email: `taskviewer${Date.now()}@iitj.ac.in`,
         passwordHash: 'password123',
     });
     authToken = generateToken(user._id, 'student');

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { Plus, Calendar, Filter, Flame, Clock, ChevronRight, BookOpen, Megaphone, Upload } from 'lucide-react';
+import { Calendar, Filter, Flame, Clock, ChevronRight, BookOpen, Megaphone, Upload, Tag } from 'lucide-react';
 import TaskCard from '../components/TaskCard';
 import MiniLeaderboard from '../components/MiniLeaderboard';
 import AnnouncementForm from '../components/AnnouncementForm';
@@ -18,7 +18,6 @@ export default function HomePage() {
     const [selectedTask, setSelectedTask] = useState(null);
     const [showAnnouncement, setShowAnnouncement] = useState(false);
     const [showUpload, setShowUpload] = useState(false);
-    const [generating, setGenerating] = useState(false);
     const [announcements, setAnnouncements] = useState([]);
 
     const isCR = user?.crForCourses?.length > 0;
@@ -31,17 +30,10 @@ export default function HomePage() {
         api.get('/announcements').then((r) => setAnnouncements(r.data.data || [])).catch(() => {});
     }, []);
 
-    const generateTask = async () => {
-        setGenerating(true);
-        try { await api.post('/tasks/generate'); fetchTasks(); toast.success('New task generated!'); }
-        catch (err) { toast.error(err.response?.data?.message || 'Failed to generate'); }
-        finally { setGenerating(false); }
-    };
-
     const filtered = useMemo(() => {
         const now = tasks.filter((t) => {
-            if (filter === 'pending') return !t.completed && !t.passed;
-            if (filter === 'completed') return t.completed || t.passed;
+            if (filter === 'pending') return t.status === 'pending' || t.status === 'in_progress';
+            if (filter === 'completed') return t.status === 'completed';
             return true;
         });
         const groups = {};
@@ -79,11 +71,6 @@ export default function HomePage() {
                                 </button>
                             </>
                         )}
-                        <button onClick={generateTask} disabled={generating}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl btn-primary text-xs cursor-pointer disabled:opacity-50">
-                            {generating ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={14} />}
-                            Generate Task
-                        </button>
                     </div>
                 </div>
 
@@ -94,8 +81,23 @@ export default function HomePage() {
                             <div key={a._id} className="flex items-start gap-3 p-3 rounded-xl"
                                 style={{ background: 'rgba(244,114,182,0.05)', border: '1px solid rgba(244,114,182,0.1)' }}>
                                 <Megaphone size={14} className="text-pink-400 mt-0.5 shrink-0" />
-                                <div><p className="text-xs text-white font-medium">{a.title}</p>
-                                    <p className="text-xs text-slate-500">{a.content}</p></div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                        <p className="text-xs text-white font-medium">{a.title}</p>
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase text-pink-300"
+                                            style={{ background: 'rgba(244,114,182,0.15)' }}>{a.eventType}</span>
+                                    </div>
+                                    {a.description && <p className="text-xs text-slate-500 mb-1">{a.description}</p>}
+                                    {a.topics?.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                            {a.topics.map((t, i) => (
+                                                <span key={i} className="inline-flex items-center gap-0.5 text-[9px] text-sky-400 px-1.5 py-0.5 rounded"
+                                                    style={{ background: 'rgba(56,189,248,0.08)' }}><Tag size={8} />{t}</span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <span className="text-[9px] text-slate-600 whitespace-nowrap">{a.course?.courseCode}</span>
                             </div>
                         ))}
                     </div>
@@ -122,7 +124,7 @@ export default function HomePage() {
                         ) : filtered.length === 0 ? (
                             <div className="text-center py-16">
                                 <BookOpen size={40} className="mx-auto text-slate-700 mb-3" />
-                                <p className="text-slate-500 text-sm">No tasks yet. Generate one to get started!</p>
+                                <p className="text-slate-500 text-sm">No tasks yet. Tasks appear when your CR posts an announcement.</p>
                             </div>
                         ) : (
                             <div className="space-y-6">
@@ -152,7 +154,7 @@ export default function HomePage() {
             </div>
 
             {selectedTask && <TaskPopup task={selectedTask} onClose={() => { setSelectedTask(null); fetchTasks(); }} />}
-            {showAnnouncement && <AnnouncementForm onClose={() => setShowAnnouncement(false)} />}
+            {showAnnouncement && <AnnouncementForm onClose={() => setShowAnnouncement(false)} onCreated={() => { fetchTasks(); api.get('/announcements').then((r) => setAnnouncements(r.data.data || [])).catch(() => {}); }} />}
             {showUpload && <ResourceUpload onClose={() => setShowUpload(false)} courses={user?.enrolledCourses || []} />}
         </div>
     );

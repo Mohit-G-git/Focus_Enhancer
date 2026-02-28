@@ -16,10 +16,21 @@ export default function QuizModal({ task, onDone, onClose }) {
     const timerRef = useRef(null);
 
     useEffect(() => {
-        api.post(`/quiz/${task._id}/start`).then((r) => {
-            setQuestions(r.data.data?.questions || []);
-            setPhase(PHASES.ACTIVE);
-        }).catch((err) => { toast.error(err.response?.data?.message || 'Quiz failed to load'); onClose(); });
+        const startQuiz = (retry = true) => {
+            api.post(`/quiz/${task._id}/start`).then((r) => {
+                setQuestions(r.data.data?.mcqs || []);
+                setPhase(PHASES.ACTIVE);
+            }).catch((err) => {
+                // If backend cleaned up a stale attempt, retry once automatically
+                if (retry && err.response?.status === 409) {
+                    setTimeout(() => startQuiz(false), 1000);
+                    return;
+                }
+                toast.error(err.response?.data?.message || 'Quiz failed to load');
+                onClose();
+            });
+        };
+        startQuiz();
     }, []);
 
     // Timer per question
@@ -39,7 +50,7 @@ export default function QuizModal({ task, onDone, onClose }) {
         clearInterval(timerRef.current);
         setSelected(optionIndex);
         try {
-            await api.post(`/quiz/${task._id}/answer`, { questionIndex: current, selectedOption: optionIndex ?? -1 });
+            await api.post(`/quiz/${task._id}/answer`, { questionIndex: current, selectedAnswer: optionIndex ?? null });
         } catch { }
         setTimeout(() => {
             if (current + 1 < questions.length) {
@@ -81,11 +92,24 @@ export default function QuizModal({ task, onDone, onClose }) {
                         {passed ? <CheckCircle size={32} className="text-emerald-400" /> : <XCircle size={32} className="text-red-400" />}
                     </div>
                     <h2 className="text-xl font-bold text-white mb-1">{passed ? 'Quiz Passed! 🎉' : 'Not Quite'}</h2>
-                    <p className="text-sm text-slate-400 mb-3">Score: <span className="text-white font-bold">{result?.score}/{result?.total}</span></p>
-                    <button onClick={onDone}
-                        className="px-6 py-2.5 rounded-xl btn-primary text-sm cursor-pointer">
-                        {passed ? 'Continue to Theory →' : 'Continue →'}
-                    </button>
+                    <p className="text-sm text-slate-400 mb-1">Score: <span className="text-white font-bold">{result?.score}/{result?.maxScore || 12}</span></p>
+                    {result?.tokensAwarded != null && (
+                        <p className={`text-xs mb-3 ${result.tokensAwarded > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {result.tokensAwarded > 0 ? `+${result.tokensAwarded} tokens earned!` : `Stake forfeited`}
+                        </p>
+                    )}
+                    {passed ? (
+                        <button onClick={() => onDone(true)}
+                            className="px-6 py-2.5 rounded-xl btn-primary text-sm cursor-pointer">
+                            Continue to Theory →
+                        </button>
+                    ) : (
+                        <button onClick={onClose}
+                            className="px-6 py-2.5 rounded-xl text-sm cursor-pointer"
+                            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
+                            Back to Tasks
+                        </button>
+                    )}
                 </div>
             </div>
         );

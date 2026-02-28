@@ -32,10 +32,28 @@ export const startQuiz = async (req, res) => {
 
         const existing = await QuizAttempt.findOne({ user: userId, task: taskId });
         if (existing) {
-            return res.status(400).json({
-                success: false,
-                message: `Quiz already ${existing.status}. One attempt per task.`,
-            });
+            // If quiz is still in progress (interrupted/closed mid-way), delete it and start fresh
+            if (existing.status === 'mcq_in_progress') {
+                // Refund the staked tokens since the quiz never finished
+                if (existing.tokenSettled === false) {
+                    const u = await User.findById(userId);
+                    u.tokenBalance += task.tokenStake;
+                    await TokenLedger.create({
+                        userId: u._id, taskId: task._id, type: 'bonus',
+                        amount: task.tokenStake, balanceAfter: u.tokenBalance,
+                        note: `Refund interrupted quiz stake for: "${task.title}"`,
+                    });
+                    await u.save();
+                }
+                // Use findOneAndDelete to ensure the document is fully removed before proceeding
+                await QuizAttempt.findOneAndDelete({ _id: existing._id });
+                // Fall through to create a fresh quiz below
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    message: `Quiz already ${existing.status}. One attempt per task.`,
+                });
+            }
         }
 
         const user = await User.findById(userId);
@@ -78,6 +96,11 @@ export const startQuiz = async (req, res) => {
             data: { attemptId: attempt._id, mcqs: sanitized, passThreshold: PASS_THRESHOLD, tokenStake: task.tokenStake },
         });
     } catch (err) {
+        // Handle race condition: if duplicate key error, delete stale and tell user to retry
+        if (err.code === 11000) {
+            await QuizAttempt.deleteOne({ user: req.user?.id || req.body.userId, task: req.params.taskId, status: 'mcq_in_progress' });
+            return res.status(409).json({ success: false, message: 'Cleaned up interrupted quiz. Please try again.' });
+        }
         console.error('❌ startQuiz:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }

@@ -77,7 +77,7 @@ describe('E2E Workflows', () => {
     it('CR creates course + announcement → student takes quiz + submits theory', async () => {
         // ── Step 1: CR registers ────────────────────────────
         const crReg = await request(app).post('/api/auth/register').send({
-            name: 'CR User', email: 'cr_e2e@test.edu', password: 'password123',
+            name: 'CR User', email: 'cr_e2e@iitj.ac.in', password: 'password123',
         });
         expect(crReg.status).toBe(201);
         const crToken = crReg.body.data.token;
@@ -94,7 +94,7 @@ describe('E2E Workflows', () => {
             .set('Authorization', `Bearer ${crToken}`);
         expect(claimRes.status).toBe(200);
         // Claim response returns courseId, not role; verify role via DB
-        const crUser = await User.findOne({ email: 'cr_e2e@test.edu' });
+        const crUser = await User.findOne({ email: 'cr_e2e@iitj.ac.in' });
         expect(crUser.role).toBe('cr');
 
         // ── Step 4: Create announcement (generates tasks) ───
@@ -119,7 +119,7 @@ describe('E2E Workflows', () => {
 
         // ── Step 6: Student registers ───────────────────────
         const studentReg = await request(app).post('/api/auth/register').send({
-            name: 'Student E2E', email: 'student_e2e@test.edu', password: 'password123',
+            name: 'Student E2E', email: 'student_e2e@iitj.ac.in', password: 'password123',
         });
         expect(studentReg.status).toBe(201);
         const studentToken = studentReg.body.data.token;
@@ -136,7 +136,7 @@ describe('E2E Workflows', () => {
 
         // ── Step 9: Student starts quiz on first task ───────
         const taskId = tasksRes.body.data[0]._id;
-        const student = await User.findOne({ email: 'student_e2e@test.edu' });
+        const student = await User.findOne({ email: 'student_e2e@iitj.ac.in' });
 
         const quizStart = await request(app).post(`/api/quiz/${taskId}/start`)
             .set('Authorization', `Bearer ${studentToken}`)
@@ -188,7 +188,7 @@ describe('E2E Workflows', () => {
     it('token economy: pass awards tokens, fail forfeits stake', async () => {
         // ── Register with 100 tokens ────────────────────────
         const reg = await request(app).post('/api/auth/register').send({
-            name: 'Token Tester', email: 'tokens_e2e@test.edu', password: 'password123',
+            name: 'Token Tester', email: 'tokens_e2e@iitj.ac.in', password: 'password123',
         });
         const token = reg.body.data.token;
         const userId = reg.body.data.user.id;
@@ -267,10 +267,10 @@ describe('E2E Workflows', () => {
        ═══════════════════════════════════════════════════════════ */
     it('chatbot uses student context and maintains conversation', async () => {
         const reg = await request(app).post('/api/auth/register').send({
-            name: 'Chat E2E', email: 'chat_e2e@test.edu', password: 'password123',
+            name: 'Chat E2E', email: 'chat_e2e@iitj.ac.in', password: 'password123',
         });
         const token = reg.body.data.token;
-        const user = await User.findOne({ email: 'chat_e2e@test.edu' });
+        const user = await User.findOne({ email: 'chat_e2e@iitj.ac.in' });
 
         // ── First message → new conversation ────────────────
         const msg1 = await request(app).post('/api/chat/message')
@@ -319,7 +319,7 @@ describe('E2E Workflows', () => {
     it('multiple students enroll and see the same tasks', async () => {
         // Create CR + course + announcement
         const cr = await request(app).post('/api/auth/register').send({
-            name: 'Multi CR', email: 'multi_cr@test.edu', password: 'password123',
+            name: 'Multi CR', email: 'multi_cr@iitj.ac.in', password: 'password123',
         });
         const crToken = cr.body.data.token;
 
@@ -342,7 +342,7 @@ describe('E2E Workflows', () => {
         const students = [];
         for (let i = 0; i < 3; i++) {
             const s = await request(app).post('/api/auth/register').send({
-                name: `Student ${i}`, email: `multi_s${i}@test.edu`, password: 'password123',
+                name: `Student ${i}`, email: `multi_s${i}@iitj.ac.in`, password: 'password123',
             });
             const sToken = s.body.data.token;
             await request(app).post(`/api/courses/${courseId}/enroll`)

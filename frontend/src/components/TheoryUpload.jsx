@@ -40,7 +40,7 @@ export default function TheoryUpload({ task, onDone, onClose }) {
         try {
             const fd = new FormData();
             fd.append('answers', JSON.stringify(answers));
-            if (file) fd.append('theoryPdf', file);
+            if (file) fd.append('solutions', file);
             await api.post(`/quiz/${task._id}/submit-theory`, fd);
             toast.success('Theory submitted!');
             setSubmitted(true);

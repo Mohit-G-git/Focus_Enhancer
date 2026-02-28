@@ -129,6 +129,36 @@ export const createAnnouncement = async (req, res) => {
 };
 
 /**
+ * GET /api/announcements
+ * Get all active announcements for the authenticated user's enrolled courses.
+ */
+export const getMyAnnouncements = async (req, res) => {
+    try {
+        const User = (await import('../models/User.js')).default;
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const courseIds = user.enrolledCourses || [];
+        if (courseIds.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+        }
+
+        const announcements = await Announcement.find({
+            course: { $in: courseIds },
+            isActive: true,
+        })
+            .populate('course', 'courseCode title')
+            .sort({ eventDate: 1 })
+            .select('-createdBy');
+
+        return res.status(200).json({ success: true, count: announcements.length, data: announcements });
+    } catch (err) {
+        console.error('❌ getMyAnnouncements:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+/**
  * GET /api/announcements/course/:courseId
  */
 export const getCourseAnnouncements = async (req, res) => {

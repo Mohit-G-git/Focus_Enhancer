@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { getCourseTasks, getTaskById, getTodaysTasks, getSchedule } from '../controllers/taskController.js';
+import { getMyTasks, getCourseTasks, getTaskById, getTodaysTasks, getSchedule } from '../controllers/taskController.js';
 
 const router = Router();
 
+router.get('/', getMyTasks);
 router.get('/course/:courseId', getCourseTasks);
 router.get('/today/:courseId', getTodaysTasks);
 router.get('/schedule/:courseId', getSchedule);
