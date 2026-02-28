@@ -7,7 +7,7 @@ import { generateMCQs, generateTheoryQuestions } from '../services/questionGener
 
 const PTS = { correct: 2, unattempted: -1, wrong: -2 };
 const PASS_THRESHOLD = 8;
-const TIME_LIMIT_MS = 15_000;
+const TIME_LIMIT_MS = 20_000;
 const TIME_GRACE_MS = 2_000;
 const DECAY_BASE = 0.6; // stake multiplier per re-attempt
 
