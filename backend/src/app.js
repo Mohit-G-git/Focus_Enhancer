@@ -36,7 +36,10 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 connectDB();
 
 // ── Middleware ──────────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: false,   // allow inline styles/scripts from React build
+    crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({
     origin: process.env.CORS_ORIGIN || '*',
     credentials: true,
@@ -80,7 +83,17 @@ app.use('/api/direct-chat', protect, directChatRoutes);
 app.use('/api/users', protect, userRoutes);
 app.use('/api/complaints', protect, complaintRoutes);
 
-// ── 404 ────────────────────────────────────────────────────────
+// ── Serve frontend static files (production) ──────────────────
+const publicDir = path.join(__dirname, '..', 'public');
+if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+    // SPA fallback — any non-API route serves index.html
+    app.get(/^\/(?!api\/)(?!uploads\/).*/, (_req, res) => {
+        res.sendFile(path.join(publicDir, 'index.html'));
+    });
+}
+
+// ── 404 (only hits for unknown /api/* routes now) ──────────────
 app.use((req, res) => {
     res.status(404).json({ success: false, message: `${req.method} ${req.originalUrl} not found` });
 });
