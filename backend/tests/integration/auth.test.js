@@ -134,7 +134,7 @@ describe('Auth Routes', () => {
 
         it('rejects non-existent email', async () => {
             const res = await request(app).post('/api/auth/login')
-                .send({ email: 'ghost@test.edu', password: 'anything' });
+                .send({ email: 'ghost@iitj.ac.in', password: 'anything' });
             expect(res.status).toBe(401);
         });
 

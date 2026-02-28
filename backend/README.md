@@ -1,6 +1,6 @@
-# Focus Enhancer — Backend API v4.0
+# Focus Enhancer — Backend API v4.2
 
-> AI-powered academic task platform with token economics, gamified quizzes, peer review arbitration, reputation scoring, course proficiency, leaderboards, and a personal AI chatbot.
+> AI-powered academic task platform with token economics, gamified quizzes, peer review arbitration, reputation scoring, course proficiency, leaderboards, task supersession, **tolerance (absence protection)**, and a personal AI chatbot.
 
 ## Table of Contents
 
@@ -24,6 +24,7 @@
 - [CR Flow — Class Representative](#cr-flow--class-representative)
 - [Token Economics](#token-economics)
 - [Token Decay](#token-decay)
+- [Tolerance (Absence Protection)](#tolerance-absence-protection)
 - [Path A — CR-Driven Day-by-Day Scheduling](#path-a--cr-driven-day-by-day-scheduling)
 - [Path B — Auto-Pilot Weekly Chapters + Sunday Revision](#path-b--auto-pilot-weekly-chapters--sunday-revision)
 - [Quiz Flow](#quiz-flow)
@@ -49,6 +50,8 @@ Path A (CR active — Day-by-Day Study Plan):
     → Student stakes X tokens → 6 MCQs (15s each)
     → Score ≥ 8 → WIN X tokens | Score < 8 → LOSE X tokens
     → If passed → 7 theory questions → submit handwritten PDF
+    → NEW tasks supersede OLD tasks on overlapping dates
+    → Tasks with active QuizAttempts are protected from supersession
 
 Path B (No CR activity — Auto-Pilot):
   MONDAY (Weekly Cron):
@@ -750,6 +753,28 @@ Stake = Reward. Win X or lose X.
 
 ---
 
+## Task Supersession
+
+When a CR posts a **new announcement** whose generated tasks overlap with existing tasks on the same dates, the system automatically handles the collision:
+
+1. **Identify overlap** — compute the date range of the new tasks and find all old `pending` tasks in that range for the same course.
+2. **Protect active quizzes** — any old task with an active `QuizAttempt` (status `mcq_in_progress`) is **never** superseded. The student's in-progress quiz is safe.
+3. **Supersede the rest** — old pending tasks without active attempts are marked `status: 'superseded'` with a `supersededBy` reference to the new announcement.
+4. **Query filtering** — all task list endpoints (`/course/:id`, `/today/:id`, `/schedule/:id`) automatically exclude superseded tasks. Pass `?includeSuperseded=true` to see them.
+5. **Quiz guard** — `POST /api/quiz/:taskId/start` returns **409 Conflict** if the task is superseded.
+
+### Per-Student Binding (`assignedTo`)
+
+Tasks have an optional `assignedTo` field (ObjectId → User). When `null` (default), the task is visible to **all** enrolled students. When set, it's a personal task for that student only.
+
+Query endpoints accept `?userId=<id>` to filter: shows tasks where `assignedTo` is null **or** matches the given user.
+
+### Weekly Fallback Supersession
+
+When the Monday cron generates new weekly chapter tasks, it also supersedes any old fallback/sunday_revision tasks from the same week that are still pending (with the same active-quiz protection).
+
+---
+
 ## Token Decay
 
 - **Rate:** -20% every 3 days (compound)
@@ -760,6 +785,49 @@ Stake = Reward. Win X or lose X.
 Stake: 20 → 16 → 13 → 10 → 8 → 6 → 5 → 4 → 3 → 2 (floor)
 Days:  0     3     6     9    12   15   18   21   24   27
 ```
+
+---
+
+## Tolerance (Absence Protection)
+
+Students earn a **grace period** proportional to their longest streak. Once the grace period is consumed, tokens bleed at an accelerating rate.
+
+### How It Works
+
+1. **Tolerance Cap** = `⌊2 + ln(1 + longestStreak) × 3⌋` grace days
+2. Every day absent **within** the cap → no penalty (tolerance draining)
+3. Every day **past** the cap → tokens bleed: `⌈2 × daysOver^1.5⌉` per day
+
+| Longest Streak | Grace Days | Meaning |
+|---|---|---|
+| 0 | 2 | Everyone gets 2 days grace |
+| 3 | 6 | +4 days from streaking |
+| 7 | 8 | +6 days |
+| 14 | 10 | +8 days |
+| 30 | 12 | +10 days |
+
+### Bleed Acceleration
+
+| Days Past Tolerance | Daily Bleed |
+|---|---|
+| 1 | 2 tokens |
+| 2 | 6 tokens |
+| 3 | 11 tokens |
+| 5 | 23 tokens |
+| 7 | 38 tokens |
+
+A student with 100 tokens and no streak loses everything in ~9 days of total absence (2 grace + 7 bleed).
+
+### API
+
+- `GET /api/auth/tolerance` — returns full tolerance status (cap, remaining, bleed rate, streak bonus)
+- Login response includes `tolerance` object
+
+### Cron
+
+Runs daily at 1:00 AM. Creates `tolerance_bleed` ledger entries. Updates `stats.tokensLost` and recalculates reputation.
+
+> **Full mathematical derivation:** see [MATHEMATICS.md §12](MATHEMATICS.md#12-tolerance-absence-protection)
 
 ---
 
@@ -856,6 +924,7 @@ Non-neutral moods are saved to `user.wellbeing.moodHistory` (last 30, FIFO).
 | **Weekly Chapter Tasks** | Monday 6:00 AM | Mon–Sat tasks for next chapter (Path B) |
 | **Sunday Revision** | Sunday 6:00 AM | Spaced-repetition, 1 course/student |
 | **Token Decay** | Every 3 days, midnight | -20% on aging tasks |
+| **Tolerance Decay** | Daily 1:00 AM | Check absent users, bleed tokens past grace period |
 
 ---
 
@@ -909,6 +978,7 @@ backend/
     │   ├── fallbackTaskGenerator.js # Path B: Mon–Sat chapters + Sunday revision
     │   ├── questionGenerator.js     # Gemini → 6 MCQs + 7 theory Qs
     │   ├── arbitrationService.js    # NEW: Gemini AI dispute resolution
+    │   ├── toleranceService.js      # NEW: Absence protection + streak-scaled grace
     │   ├── chatbot.js               # Focus Buddy + mood saving
     │   ├── chapterExtractor.js      # Parse chapters from PDF
     │   ├── tokenDecay.js            # -20% every 3 days
@@ -925,7 +995,7 @@ backend/
     │   ├── leaderboardController.js # NEW: overall + course leaderboards
     │   └── chatController.js        # Chatbot endpoints
     └── routes/
-        ├── auth.js          # /register, /login, /me, /profile
+        ├── auth.js          # /register, /login, /me, /profile, /tolerance
         ├── courses.js       # CRUD, claim-cr, upload-book, enroll, students
         ├── announcements.js # /create (protected), /course/:id
         ├── tasks.js         # /course/:id, /today/:id, /schedule/:id, /:taskId
@@ -993,8 +1063,8 @@ node live-test-all.js
 ```
 
 ### Test Results
-
-**257 passed / 0 failed** across 13 test files
+            
+**302 passed / 0 failed** across 15 test files
 
 | Suite | Tests | Description |
 |---|---|---|
@@ -1010,4 +1080,6 @@ node live-test-all.js
 | Integration: Chat | 18 | Gemini mock, conversations, mood saving, CRUD |
 | Integration: Reviews | 19 | Upvote, downvote, dispute (agree/disagree), AI arbitration |
 | Integration: Leaderboard | 7 | Overall ranking, course ranking, pagination |
+| Integration: Supersession | 17 | Task supersession, active quiz protection, query filtering |
+| Integration: Tolerance | 28 | Tolerance cap, bleed math, API, cron penalty, streak scaling |
 | E2E: Workflows | 4 | Full CR→student journey, token economy, multi-student |

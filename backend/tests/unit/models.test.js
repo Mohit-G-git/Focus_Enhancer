@@ -18,10 +18,10 @@ const oid = () => new mongoose.Types.ObjectId();
 describe('User Model', () => {
     it('creates a valid user with defaults', async () => {
         const user = await User.create({
-            name: 'Alice', email: 'alice@test.edu', passwordHash: 'pass123',
+            name: 'Alice', email: 'alice@iitj.ac.in', passwordHash: 'pass123',
         });
         expect(user.name).toBe('Alice');
-        expect(user.email).toBe('alice@test.edu');
+        expect(user.email).toBe('alice@iitj.ac.in');
         expect(user.tokenBalance).toBe(100);
         expect(user.role).toBe('student');
         expect(user.reputation).toBe(0);
@@ -34,7 +34,7 @@ describe('User Model', () => {
     });
 
     it('requires name', async () => {
-        await expect(User.create({ email: 'a@b.com', passwordHash: 'x' }))
+        await expect(User.create({ email: 'reqname@iitj.ac.in', passwordHash: 'x' }))
             .rejects.toThrow(/Name is required/);
     });
 
@@ -45,41 +45,46 @@ describe('User Model', () => {
 
     it('rejects invalid email format', async () => {
         await expect(User.create({ name: 'A', email: 'not-an-email', passwordHash: 'x' }))
-            .rejects.toThrow(/valid email/);
+            .rejects.toThrow(/iitj\.ac\.in/);
+    });
+
+    it('rejects non-iitj.ac.in email', async () => {
+        await expect(User.create({ name: 'A', email: 'user@gmail.com', passwordHash: 'x' }))
+            .rejects.toThrow(/iitj\.ac\.in/);
     });
 
     it('lowercases email', async () => {
-        const u = await User.create({ name: 'B', email: 'BOB@Test.EDU', passwordHash: 'x' });
-        expect(u.email).toBe('bob@test.edu');
+        const u = await User.create({ name: 'B', email: 'BOB@IITJ.AC.IN', passwordHash: 'x' });
+        expect(u.email).toBe('bob@iitj.ac.in');
     });
 
     it('enforces unique email', async () => {
-        await User.create({ name: 'A', email: 'dup@test.edu', passwordHash: 'x' });
-        await expect(User.create({ name: 'B', email: 'dup@test.edu', passwordHash: 'y' }))
+        await User.create({ name: 'A', email: 'dup@iitj.ac.in', passwordHash: 'x' });
+        await expect(User.create({ name: 'B', email: 'dup@iitj.ac.in', passwordHash: 'y' }))
             .rejects.toThrow();
     });
 
     it('validates role enum', async () => {
-        await expect(User.create({ name: 'A', email: 'r@t.edu', passwordHash: 'x', role: 'superadmin' }))
+        await expect(User.create({ name: 'A', email: 'r@iitj.ac.in', passwordHash: 'x', role: 'superadmin' }))
             .rejects.toThrow();
     });
 
     it('validates semester range 1-8', async () => {
-        await expect(User.create({ name: 'A', email: 's@t.edu', passwordHash: 'x', semester: 0 }))
+        await expect(User.create({ name: 'A', email: 's@iitj.ac.in', passwordHash: 'x', semester: 0 }))
             .rejects.toThrow();
-        await expect(User.create({ name: 'A', email: 's2@t.edu', passwordHash: 'x', semester: 9 }))
+        await expect(User.create({ name: 'A', email: 's2@iitj.ac.in', passwordHash: 'x', semester: 9 }))
             .rejects.toThrow();
     });
 
     it('hashes password on create', async () => {
-        const user = await User.create({ name: 'H', email: 'hash@t.edu', passwordHash: 'plain123' });
+        const user = await User.create({ name: 'H', email: 'hash@iitj.ac.in', passwordHash: 'plain123' });
         const full = await User.findById(user._id).select('+passwordHash');
         expect(full.passwordHash).not.toBe('plain123');
         expect(full.passwordHash.startsWith('$2')).toBe(true);
     });
 
     it('does NOT re-hash password on unrelated save', async () => {
-        const user = await User.create({ name: 'H2', email: 'h2@t.edu', passwordHash: 'plain' });
+        const user = await User.create({ name: 'H2', email: 'h2@iitj.ac.in', passwordHash: 'plain' });
         const full = await User.findById(user._id).select('+passwordHash');
         const hash1 = full.passwordHash;
         full.name = 'Updated';
@@ -89,26 +94,26 @@ describe('User Model', () => {
     });
 
     it('comparePassword returns true for correct password', async () => {
-        await User.create({ name: 'C', email: 'cmp@t.edu', passwordHash: 'secret99' });
-        const user = await User.findOne({ email: 'cmp@t.edu' }).select('+passwordHash');
+        await User.create({ name: 'C', email: 'cmp@iitj.ac.in', passwordHash: 'secret99' });
+        const user = await User.findOne({ email: 'cmp@iitj.ac.in' }).select('+passwordHash');
         expect(await user.comparePassword('secret99')).toBe(true);
     });
 
     it('comparePassword returns false for wrong password', async () => {
-        await User.create({ name: 'C2', email: 'cmp2@t.edu', passwordHash: 'secret99' });
-        const user = await User.findOne({ email: 'cmp2@t.edu' }).select('+passwordHash');
+        await User.create({ name: 'C2', email: 'cmp2@iitj.ac.in', passwordHash: 'secret99' });
+        const user = await User.findOne({ email: 'cmp2@iitj.ac.in' }).select('+passwordHash');
         expect(await user.comparePassword('wrong')).toBe(false);
     });
 
     it('passwordHash is excluded by default', async () => {
-        await User.create({ name: 'S', email: 'sel@t.edu', passwordHash: 'x' });
-        const user = await User.findOne({ email: 'sel@t.edu' });
+        await User.create({ name: 'S', email: 'sel@iitj.ac.in', passwordHash: 'x' });
+        const user = await User.findOne({ email: 'sel@iitj.ac.in' });
         expect(user.passwordHash).toBeUndefined();
     });
 
     describe('addMoodEntry()', () => {
         it('appends mood to history', async () => {
-            const user = await User.create({ name: 'M', email: 'm@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'M', email: 'm@iitj.ac.in', passwordHash: 'x' });
             user.addMoodEntry('happy');
             user.addMoodEntry('stressed');
             await user.save();
@@ -118,7 +123,7 @@ describe('User Model', () => {
         });
 
         it('caps at 30 entries (FIFO)', async () => {
-            const user = await User.create({ name: 'M2', email: 'm2@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'M2', email: 'm2@iitj.ac.in', passwordHash: 'x' });
             for (let i = 0; i < 35; i++) user.addMoodEntry('neutral');
             await user.save();
             expect(user.wellbeing.moodHistory).toHaveLength(30);
@@ -127,7 +132,7 @@ describe('User Model', () => {
 
     describe('recordMcqScore()', () => {
         it('calculates running average', async () => {
-            const user = await User.create({ name: 'R', email: 'r@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'R', email: 'r@iitj.ac.in', passwordHash: 'x' });
             user.recordMcqScore(10);
             expect(user.stats.quizzesTaken).toBe(1);
             expect(user.stats.avgMcqScore).toBe(10);
@@ -139,14 +144,14 @@ describe('User Model', () => {
 
     describe('updateStreak()', () => {
         it('starts streak at 1 on first call', async () => {
-            const user = await User.create({ name: 'S1', email: 's1@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'S1', email: 's1@iitj.ac.in', passwordHash: 'x' });
             user.updateStreak();
             expect(user.streak.currentDays).toBe(1);
             expect(user.streak.longestStreak).toBe(1);
         });
 
         it('increments on consecutive days', async () => {
-            const user = await User.create({ name: 'S2', email: 's2@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'S2', email: 's2@iitj.ac.in', passwordHash: 'x' });
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
             yesterday.setHours(0, 0, 0, 0);
@@ -157,7 +162,7 @@ describe('User Model', () => {
         });
 
         it('resets after a gap of >1 day', async () => {
-            const user = await User.create({ name: 'S3', email: 's3@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'S3', email: 's3@iitj.ac.in', passwordHash: 'x' });
             const threeDaysAgo = new Date();
             threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
             user.streak.currentDays = 10;
@@ -169,7 +174,7 @@ describe('User Model', () => {
         });
 
         it('does NOT double-count same day', async () => {
-            const user = await User.create({ name: 'S4', email: 's4@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'S4', email: 's4@iitj.ac.in', passwordHash: 'x' });
             user.updateStreak();
             expect(user.streak.currentDays).toBe(1);
             user.updateStreak(); // same day again
@@ -177,7 +182,7 @@ describe('User Model', () => {
         });
 
         it('updates longestStreak when current exceeds it', async () => {
-            const user = await User.create({ name: 'S5', email: 's5@t.edu', passwordHash: 'x' });
+            const user = await User.create({ name: 'S5', email: 's5@iitj.ac.in', passwordHash: 'x' });
             user.streak.currentDays = 5;
             user.streak.longestStreak = 5;
             const yesterday = new Date();

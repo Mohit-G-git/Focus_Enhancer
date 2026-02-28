@@ -17,6 +17,9 @@ import chatRoutes from '../src/routes/chat.js';
 import theoryRoutes from '../src/routes/theory.js';
 import reviewRoutes from '../src/routes/reviews.js';
 import leaderboardRoutes from '../src/routes/leaderboard.js';
+import directChatRoutes from '../src/routes/directChat.js';
+import userRoutes from '../src/routes/users.js';
+import { protect } from '../src/middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,18 +38,20 @@ export function createApp() {
     app.use('/uploads', express.static(uploadsDir));
 
     app.get('/api/health', (_, res) => {
-        res.json({ success: true, message: 'Focus Enhancer API v4.0', timestamp: new Date().toISOString() });
+        res.json({ success: true, message: 'Focus Enhancer API v4.2', timestamp: new Date().toISOString() });
     });
 
     app.use('/api/auth', authRoutes);
     app.use('/api/courses', courseRoutes);
-    app.use('/api/tasks', taskRoutes);
+    app.use('/api/tasks', protect, taskRoutes);
     app.use('/api/announcements', announcementRoutes);
-    app.use('/api/quiz', quizRoutes);
-    app.use('/api/chat', chatRoutes);
+    app.use('/api/quiz', protect, quizRoutes);
+    app.use('/api/chat', protect, chatRoutes);
     app.use('/api/theory', theoryRoutes);
     app.use('/api/reviews', reviewRoutes);
     app.use('/api/leaderboard', leaderboardRoutes);
+    app.use('/api/direct-chat', protect, directChatRoutes);
+    app.use('/api/users', protect, userRoutes);
 
     app.use((req, res) => {
         res.status(404).json({ success: false, message: `${req.method} ${req.originalUrl} not found` });
@@ -76,7 +81,7 @@ export function makeUser(overrides = {}) {
     const n = uid();
     return {
         name: `Test User ${n}`,
-        email: `user${n}@test.edu`,
+        email: `user${n}@iitj.ac.in`,
         password: 'password123',
         role: 'student',
         ...overrides,

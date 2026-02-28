@@ -49,20 +49,11 @@ vi.mock('../../src/services/questionGenerator.js', () => ({
     ]),
 }));
 
-vi.mock('@google/generative-ai', () => ({
-    GoogleGenerativeAI: class {
-        getGenerativeModel() {
-            return {
-                startChat() {
-                    return {
-                        sendMessage: vi.fn().mockResolvedValue({
-                            response: { text: () => 'E2E mock bot response' },
-                        }),
-                    };
-                },
-            };
-        }
-    },
+vi.mock('../../src/services/geminiClient.js', () => ({
+    generateContent: vi.fn().mockResolvedValue('mock content'),
+    chatCompletion: vi.fn().mockResolvedValue('E2E mock bot response'),
+    parseJSON: vi.fn((raw) => JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim())),
+    _resetThrottle: vi.fn(),
 }));
 
 import { createApp, createFakePdfBuffer } from '../helpers.js';
@@ -86,7 +77,7 @@ describe('E2E Workflows', () => {
     it('CR creates course + announcement → student takes quiz + submits theory', async () => {
         // ── Step 1: CR registers ────────────────────────────
         const crReg = await request(app).post('/api/auth/register').send({
-            name: 'CR User', email: 'cr_e2e@test.edu', password: 'password123',
+            name: 'CR User', email: 'cr_e2e@iitj.ac.in', password: 'password123',
         });
         expect(crReg.status).toBe(201);
         const crToken = crReg.body.data.token;
@@ -103,7 +94,7 @@ describe('E2E Workflows', () => {
             .set('Authorization', `Bearer ${crToken}`);
         expect(claimRes.status).toBe(200);
         // Claim response returns courseId, not role; verify role via DB
-        const crUser = await User.findOne({ email: 'cr_e2e@test.edu' });
+        const crUser = await User.findOne({ email: 'cr_e2e@iitj.ac.in' });
         expect(crUser.role).toBe('cr');
 
         // ── Step 4: Create announcement (generates tasks) ───
@@ -121,13 +112,14 @@ describe('E2E Workflows', () => {
         expect(annRes.body.data.tasks.length).toBeGreaterThanOrEqual(3);
 
         // ── Step 5: Verify tasks in DB ──────────────────────
-        const tasksRes = await request(app).get(`/api/tasks/course/${courseId}`);
+        const tasksRes = await request(app).get(`/api/tasks/course/${courseId}`)
+            .set('Authorization', `Bearer ${crToken}`);
         expect(tasksRes.status).toBe(200);
         expect(tasksRes.body.count).toBeGreaterThanOrEqual(3);
 
         // ── Step 6: Student registers ───────────────────────
         const studentReg = await request(app).post('/api/auth/register').send({
-            name: 'Student E2E', email: 'student_e2e@test.edu', password: 'password123',
+            name: 'Student E2E', email: 'student_e2e@iitj.ac.in', password: 'password123',
         });
         expect(studentReg.status).toBe(201);
         const studentToken = studentReg.body.data.token;
@@ -138,12 +130,13 @@ describe('E2E Workflows', () => {
         expect(enrollRes.status).toBe(200);
 
         // ── Step 8: Student views today's tasks ─────────────
-        const todayRes = await request(app).get(`/api/tasks/today/${courseId}`);
+        const todayRes = await request(app).get(`/api/tasks/today/${courseId}`)
+            .set('Authorization', `Bearer ${studentToken}`);
         expect(todayRes.status).toBe(200);
 
         // ── Step 9: Student starts quiz on first task ───────
         const taskId = tasksRes.body.data[0]._id;
-        const student = await User.findOne({ email: 'student_e2e@test.edu' });
+        const student = await User.findOne({ email: 'student_e2e@iitj.ac.in' });
 
         const quizStart = await request(app).post(`/api/quiz/${taskId}/start`)
             .set('Authorization', `Bearer ${studentToken}`)
@@ -195,7 +188,7 @@ describe('E2E Workflows', () => {
     it('token economy: pass awards tokens, fail forfeits stake', async () => {
         // ── Register with 100 tokens ────────────────────────
         const reg = await request(app).post('/api/auth/register').send({
-            name: 'Token Tester', email: 'tokens_e2e@test.edu', password: 'password123',
+            name: 'Token Tester', email: 'tokens_e2e@iitj.ac.in', password: 'password123',
         });
         const token = reg.body.data.token;
         const userId = reg.body.data.user.id;
@@ -274,13 +267,14 @@ describe('E2E Workflows', () => {
        ═══════════════════════════════════════════════════════════ */
     it('chatbot uses student context and maintains conversation', async () => {
         const reg = await request(app).post('/api/auth/register').send({
-            name: 'Chat E2E', email: 'chat_e2e@test.edu', password: 'password123',
+            name: 'Chat E2E', email: 'chat_e2e@iitj.ac.in', password: 'password123',
         });
         const token = reg.body.data.token;
-        const user = await User.findOne({ email: 'chat_e2e@test.edu' });
+        const user = await User.findOne({ email: 'chat_e2e@iitj.ac.in' });
 
         // ── First message → new conversation ────────────────
         const msg1 = await request(app).post('/api/chat/message')
+            .set('Authorization', `Bearer ${token}`)
             .send({ userId: user._id.toString(), message: 'I feel stressed about my exams' });
         expect(msg1.status).toBe(200);
         expect(msg1.body.data.conversationId).toBeTruthy();
@@ -290,27 +284,32 @@ describe('E2E Workflows', () => {
 
         // ── Second message → continue conversation ──────────
         const msg2 = await request(app).post('/api/chat/message')
+            .set('Authorization', `Bearer ${token}`)
             .send({ userId: user._id.toString(), message: 'Can you explain binary trees?', conversationId: convId });
         expect(msg2.status).toBe(200);
         expect(msg2.body.data.conversationId).toBe(convId);
 
         // ── Verify conversation has 4 messages (2 user + 2 bot)
         const conv = await request(app)
-            .get(`/api/chat/conversations/${convId}?userId=${user._id}`);
+            .get(`/api/chat/conversations/${convId}?userId=${user._id}`)
+            .set('Authorization', `Bearer ${token}`);
         expect(conv.body.data.messages.length).toBe(4);
 
         // ── List conversations ──────────────────────────────
         const list = await request(app)
-            .get(`/api/chat/conversations?userId=${user._id}`);
+            .get(`/api/chat/conversations?userId=${user._id}`)
+            .set('Authorization', `Bearer ${token}`);
         expect(list.body.count).toBe(1);
 
         // ── Delete conversation ─────────────────────────────
         await request(app)
             .delete(`/api/chat/conversations/${convId}`)
+            .set('Authorization', `Bearer ${token}`)
             .send({ userId: user._id.toString() });
 
         const listAfter = await request(app)
-            .get(`/api/chat/conversations?userId=${user._id}`);
+            .get(`/api/chat/conversations?userId=${user._id}`)
+            .set('Authorization', `Bearer ${token}`);
         expect(listAfter.body.count).toBe(0);
     }, 30_000);
 
@@ -320,7 +319,7 @@ describe('E2E Workflows', () => {
     it('multiple students enroll and see the same tasks', async () => {
         // Create CR + course + announcement
         const cr = await request(app).post('/api/auth/register').send({
-            name: 'Multi CR', email: 'multi_cr@test.edu', password: 'password123',
+            name: 'Multi CR', email: 'multi_cr@iitj.ac.in', password: 'password123',
         });
         const crToken = cr.body.data.token;
 
@@ -343,7 +342,7 @@ describe('E2E Workflows', () => {
         const students = [];
         for (let i = 0; i < 3; i++) {
             const s = await request(app).post('/api/auth/register').send({
-                name: `Student ${i}`, email: `multi_s${i}@test.edu`, password: 'password123',
+                name: `Student ${i}`, email: `multi_s${i}@iitj.ac.in`, password: 'password123',
             });
             const sToken = s.body.data.token;
             await request(app).post(`/api/courses/${courseId}/enroll`)
@@ -352,7 +351,8 @@ describe('E2E Workflows', () => {
         }
 
         // All students see the same tasks
-        const tasks1 = await request(app).get(`/api/tasks/course/${courseId}`);
+        const tasks1 = await request(app).get(`/api/tasks/course/${courseId}`)
+            .set('Authorization', `Bearer ${students[0]}`);
         expect(tasks1.body.count).toBeGreaterThanOrEqual(1);
 
         // Verify enrollment count via DB

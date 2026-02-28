@@ -2,6 +2,7 @@ import Announcement from '../models/Announcement.js';
 import Course from '../models/Course.js';
 import Task from '../models/Task.js';
 import User from '../models/User.js';
+import QuizAttempt from '../models/QuizAttempt.js';
 import { generateTasks } from '../services/aiTaskGenerator.js';
 
 /**
@@ -72,6 +73,46 @@ export const createAnnouncement = async (req, res) => {
             announcement.tasksGenerated = true;
             await announcement.save();
             console.log(`🤖 Generated ${generatedTasks.length} tasks`);
+
+            // ── Supersede old overlapping tasks ────────────────
+            if (generatedTasks.length > 0) {
+                try {
+                    const newIds = generatedTasks.map((t) => t._id);
+                    const dates = generatedTasks.map((t) => new Date(t.scheduledDate));
+                    const minDate = new Date(Math.min(...dates));
+                    minDate.setHours(0, 0, 0, 0);
+                    const maxDate = new Date(Math.max(...dates));
+                    maxDate.setDate(maxDate.getDate() + 1);
+                    maxDate.setHours(0, 0, 0, 0);
+
+                    const oldTasks = await Task.find({
+                        course: course._id,
+                        _id: { $nin: newIds },
+                        status: 'pending',
+                        scheduledDate: { $gte: minDate, $lt: maxDate },
+                    });
+
+                    if (oldTasks.length > 0) {
+                        const activeAttemptTaskIds = await QuizAttempt.find({
+                            task: { $in: oldTasks.map((t) => t._id) },
+                            status: 'mcq_in_progress',
+                        }).distinct('task');
+
+                        const protectedSet = new Set(activeAttemptTaskIds.map((id) => id.toString()));
+                        const toSupersede = oldTasks.filter((t) => !protectedSet.has(t._id.toString()));
+
+                        if (toSupersede.length > 0) {
+                            await Task.updateMany(
+                                { _id: { $in: toSupersede.map((t) => t._id) } },
+                                { status: 'superseded', supersededBy: announcement._id },
+                            );
+                            console.log(`♻️  Superseded ${toSupersede.length} old tasks (${protectedSet.size} protected)`);
+                        }
+                    }
+                } catch (superErr) {
+                    console.error(`⚠️  Supersession check failed: ${superErr.message}`);
+                }
+            }
         } catch (aiErr) {
             console.error(`❌ AI task gen failed: ${aiErr.message}`);
         }
@@ -84,6 +125,36 @@ export const createAnnouncement = async (req, res) => {
     } catch (err) {
         console.error('❌ createAnnouncement:', err.message);
         return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * GET /api/announcements
+ * Get all active announcements for the authenticated user's enrolled courses.
+ */
+export const getMyAnnouncements = async (req, res) => {
+    try {
+        const User = (await import('../models/User.js')).default;
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const courseIds = user.enrolledCourses || [];
+        if (courseIds.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+        }
+
+        const announcements = await Announcement.find({
+            course: { $in: courseIds },
+            isActive: true,
+        })
+            .populate('course', 'courseCode title')
+            .sort({ eventDate: 1 })
+            .select('-createdBy');
+
+        return res.status(200).json({ success: true, count: announcements.length, data: announcements });
+    } catch (err) {
+        console.error('❌ getMyAnnouncements:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 

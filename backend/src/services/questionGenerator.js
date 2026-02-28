@@ -1,40 +1,10 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { generateContent, parseJSON } from './geminiClient.js';
 import { extractRelevantContent } from './pdfParser.js';
 
 /**
  * Question Generator — 6 MCQs + 7 Theory per user per task.
  * Each invocation produces unique questions via Gemini.
  */
-
-const GEMINI_MODELS = [
-    process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-flash-latest',
-];
-
-async function callGemini(prompt) {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    let lastErr;
-    for (const model of GEMINI_MODELS) {
-        try {
-            const r = await genAI.getGenerativeModel({ model }).generateContent(prompt);
-            console.log(`✅ Question gen model: ${model}`);
-            return r.response.text();
-        } catch (err) {
-            if (err.message?.includes('429') || err.message?.includes('quota')) {
-                console.warn(`⚠️  ${model} quota exceeded`);
-                lastErr = err;
-                continue;
-            }
-            throw err;
-        }
-    }
-    throw new Error(`All models quota-limited. ${lastErr?.message}`);
-}
-
-function parseJSON(raw) {
-    return JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim());
-}
 
 // ── MCQ Generation ─────────────────────────────────────────────────
 
@@ -59,7 +29,7 @@ RULES:
 Output ONLY a JSON array:
 [{"question":"","options":["A","B","C","D"],"correctAnswer":0}]`;
 
-    const mcqs = parseJSON(await callGemini(prompt));
+    const mcqs = parseJSON(await generateContent(prompt, 'MCQ gen'));
     if (!Array.isArray(mcqs) || mcqs.length !== 6) throw new Error(`Expected 6 MCQs, got ${mcqs?.length}`);
 
     for (const m of mcqs) {
@@ -92,7 +62,7 @@ RULES:
 Output ONLY a JSON array of strings:
 ["Question 1 text...","Question 2 text..."]`;
 
-    const qs = parseJSON(await callGemini(prompt));
+    const qs = parseJSON(await generateContent(prompt, 'Theory gen'));
     if (!Array.isArray(qs) || qs.length !== 7) throw new Error(`Expected 7 theory Qs, got ${qs?.length}`);
     return qs;
 }

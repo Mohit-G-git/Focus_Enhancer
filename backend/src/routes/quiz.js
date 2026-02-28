@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { startQuiz, answerQuestion, getMCQResult, getTheoryQuestions, submitTheory } from '../controllers/quizController.js';
+import { startQuiz, answerQuestion, getMCQResult, getTheoryQuestions, submitTheory, getAttemptInfo } from '../controllers/quizController.js';
 import { answerRules, validate } from '../middleware/validate.js';
 import { protect } from '../middleware/auth.js';
 

@@ -48,13 +48,13 @@ async function seedPeerReviewScenario(reviewerBalance = 100, revieweeBalance = 2
 
     const reviewee = await User.create({
         name: 'Reviewee Student',
-        email: `reviewee_${Date.now()}@test.edu`,
+        email: `reviewee_${Date.now()}@iitj.ac.in`,
         passwordHash: hash,
         tokenBalance: revieweeBalance,
     });
     const reviewer = await User.create({
         name: 'Reviewer Student',
-        email: `reviewer_${Date.now()}@test.edu`,
+        email: `reviewer_${Date.now()}@iitj.ac.in`,
         passwordHash: hash,
         tokenBalance: reviewerBalance,
     });
@@ -186,7 +186,7 @@ describe('Peer Review Routes', () => {
 
         it('returns 404 for non-submitted task', async () => {
             const hash = await bcrypt.hash('pass', 1);
-            const u = await User.create({ name: 'X', email: `x${Date.now()}@t.edu`, passwordHash: hash });
+            const u = await User.create({ name: 'X', email: `x${Date.now()}@iitj.ac.in`, passwordHash: hash });
             const tok = generateToken(u._id);
             const res = await request(app)
                 .get(`/api/reviews/solution/${new mongoose.Types.ObjectId()}/${u._id}`)

@@ -64,12 +64,15 @@ const QuizAttemptSchema = new mongoose.Schema(
             enum: ['mcq_in_progress', 'mcq_completed', 'theory_pending', 'submitted', 'failed'],
             default: 'mcq_in_progress',
         },
+        attemptNumber: { type: Number, default: 1, min: 1 },
+        effectiveStake: { type: Number, default: null }, // decayed stake for this attempt
         tokenSettled: { type: Boolean, default: false },
         tokensAwarded: { type: Number, default: 0 },
     },
     { timestamps: true }
 );
 
-QuizAttemptSchema.index({ user: 1, task: 1 }, { unique: true });
+// Allow multiple attempts per user+task (non-unique compound index for fast lookups)
+QuizAttemptSchema.index({ user: 1, task: 1 });
 
 export default mongoose.model('QuizAttempt', QuizAttemptSchema);

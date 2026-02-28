@@ -2,13 +2,27 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import mongoose from 'mongoose';
-import { createApp } from '../helpers.js';
+import { createApp, generateToken } from '../helpers.js';
 import Task from '../../src/models/Task.js';
 import Course from '../../src/models/Course.js';
 import Announcement from '../../src/models/Announcement.js';
+import User from '../../src/models/User.js';
 
 const app = createApp();
 const oid = () => new mongoose.Types.ObjectId();
+
+/* ── Generate a valid auth token for task route access ──────── */
+let authToken;
+async function getToken() {
+    if (authToken) return authToken;
+    const user = await User.create({
+        name: 'Task Viewer', email: `taskviewer${Date.now()}@iitj.ac.in`,
+        passwordHash: 'password123',
+    });
+    authToken = generateToken(user._id, 'student');
+    return authToken;
+}
+function auth(req) { return getToken().then((t) => req.set('Authorization', `Bearer ${t}`)); }
 
 /* ── Seed helper: create course + announcement + tasks ──────── */
 async function seedTasks() {
@@ -66,32 +80,32 @@ describe('Task Routes', () => {
     describe('GET /api/tasks/course/:courseId', () => {
         it('lists all tasks for a course', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/course/${course._id}`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}`));
             expect(res.status).toBe(200);
             expect(res.body.count).toBe(4);
         });
 
         it('filters by difficulty', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/course/${course._id}?difficulty=easy`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}?difficulty=easy`));
             expect(res.body.data.every((t) => t.difficulty === 'easy')).toBe(true);
         });
 
         it('filters by type', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/course/${course._id}?type=coding`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}?type=coding`));
             expect(res.body.data.every((t) => t.type === 'coding')).toBe(true);
         });
 
         it('filters by pass number', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/course/${course._id}?pass=2`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}?pass=2`));
             expect(res.body.data.every((t) => t.passNumber === 2)).toBe(true);
         });
 
         it('filters by revision', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/course/${course._id}?revision=true`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}?revision=true`));
             expect(res.body.data.every((t) => t.isRevision === true)).toBe(true);
         });
 
@@ -101,13 +115,13 @@ describe('Task Routes', () => {
             const m = String(today.getMonth() + 1).padStart(2, '0');
             const d = String(today.getDate()).padStart(2, '0');
             const dateStr = `${y}-${m}-${d}`;
-            const res = await request(app).get(`/api/tasks/course/${course._id}?date=${dateStr}`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}?date=${dateStr}`));
             expect(res.body.count).toBe(2); // 2 tasks today
         });
 
         it('populates course and announcement', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/course/${course._id}`);
+            const res = await auth(request(app).get(`/api/tasks/course/${course._id}`));
             expect(res.body.data[0].course).toHaveProperty('title');
             expect(res.body.data[0].announcement).toHaveProperty('title');
         });
@@ -119,7 +133,7 @@ describe('Task Routes', () => {
     describe('GET /api/tasks/today/:courseId', () => {
         it("returns today's tasks only", async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/today/${course._id}`);
+            const res = await auth(request(app).get(`/api/tasks/today/${course._id}`));
             expect(res.status).toBe(200);
             expect(res.body.count).toBe(2);
             expect(res.body.date).toBeDefined();
@@ -127,7 +141,7 @@ describe('Task Routes', () => {
 
         it('returns 0 for course with no tasks today', async () => {
             const c = await Course.create({ courseCode: `EMPTY${Date.now() % 10000}`, title: 'E', durationType: 'full' });
-            const res = await request(app).get(`/api/tasks/today/${c._id}`);
+            const res = await auth(request(app).get(`/api/tasks/today/${c._id}`));
             expect(res.body.count).toBe(0);
         });
     });
@@ -138,7 +152,7 @@ describe('Task Routes', () => {
     describe('GET /api/tasks/schedule/:courseId', () => {
         it('returns grouped schedule', async () => {
             const { course } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/schedule/${course._id}`);
+            const res = await auth(request(app).get(`/api/tasks/schedule/${course._id}`));
             expect(res.status).toBe(200);
             expect(res.body.totalDays).toBeGreaterThanOrEqual(3); // yesterday, today, tomorrow
             expect(res.body.totalTasks).toBe(4);
@@ -154,13 +168,13 @@ describe('Task Routes', () => {
     describe('GET /api/tasks/:taskId', () => {
         it('returns single task detail', async () => {
             const { tasks } = await seedTasks();
-            const res = await request(app).get(`/api/tasks/${tasks[0]._id}`);
+            const res = await auth(request(app).get(`/api/tasks/${tasks[0]._id}`));
             expect(res.status).toBe(200);
             expect(res.body.data.title).toBe('Task Today Easy');
         });
 
         it('returns 404 for non-existent', async () => {
-            const res = await request(app).get('/api/tasks/000000000000000000000000');
+            const res = await auth(request(app).get('/api/tasks/000000000000000000000000'));
             expect(res.status).toBe(404);
         });
     });

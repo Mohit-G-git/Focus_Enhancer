@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import TokenLedger from '../models/TokenLedger.js';
+import { computeToleranceStatus } from '../services/toleranceService.js';
 
 /**
  * POST /api/auth/register
@@ -12,6 +13,11 @@ export const register = async (req, res) => {
             name, email, password, role,
             studentId, department, semester, year, university,
         } = req.body;
+
+        // Only accept @iitj.ac.in emails
+        if (!email || !email.toLowerCase().endsWith('@iitj.ac.in')) {
+            return res.status(400).json({ success: false, message: 'Only @iitj.ac.in email addresses are allowed' });
+        }
 
         const exists = await User.findOne({ email });
         if (exists) {
@@ -119,6 +125,7 @@ export const login = async (req, res) => {
                     reputation: user.reputation,
                     streak: user.streak,
                     stats: user.stats,
+                    tolerance: computeToleranceStatus(user),
                 },
             },
         });
@@ -131,6 +138,7 @@ export const login = async (req, res) => {
 /**
  * GET /api/auth/me
  * Returns current user's full profile (requires JWT).
+ * Includes crForCourses — list of course IDs this user is CR for (CR stays anonymous to others).
  */
 export const getMe = async (req, res) => {
     try {
@@ -138,7 +146,18 @@ export const getMe = async (req, res) => {
             .populate('enrolledCourses', 'courseCode title creditWeight durationType currentChapterIndex chapters');
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        return res.status(200).json({ success: true, data: user });
+        // Find which courses this user is CR for (without exposing CR identity to others)
+        let crForCourses = [];
+        if (user.role === 'cr' || user.role === 'admin') {
+            const Course = (await import('../models/Course.js')).default;
+            const crCourses = await Course.find({ courseRep: user._id }).select('_id courseCode');
+            crForCourses = crCourses.map((c) => ({ _id: c._id, courseCode: c.courseCode }));
+        }
+
+        const userData = user.toJSON();
+        userData.crForCourses = crForCourses;
+
+        return res.status(200).json({ success: true, data: userData });
     } catch (err) {
         console.error('❌ getMe:', err.message);
         return res.status(500).json({ success: false, message: 'Server error' });
@@ -173,7 +192,7 @@ export const updateProfile = async (req, res) => {
         }
 
         const user = await User.findByIdAndUpdate(req.user.id, updates, {
-            new: true,
+            returnDocument: 'after',
             runValidators: true,
         }).populate('enrolledCourses', 'courseCode title creditWeight durationType');
 
@@ -187,5 +206,24 @@ export const updateProfile = async (req, res) => {
     } catch (err) {
         console.error('❌ updateProfile:', err.message);
         return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * GET /api/auth/tolerance
+ * Returns the user's current tolerance status.
+ */
+export const getTolerance = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        return res.status(200).json({
+            success: true,
+            data: computeToleranceStatus(user),
+        });
+    } catch (err) {
+        console.error('❌ getTolerance:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };

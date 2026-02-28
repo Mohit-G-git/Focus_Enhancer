@@ -16,7 +16,14 @@ import courseRoutes from './routes/courses.js';
 import theoryRoutes from './routes/theory.js';
 import reviewRoutes from './routes/reviews.js';
 import leaderboardRoutes from './routes/leaderboard.js';
+import directChatRoutes from './routes/directChat.js';
+import userRoutes from './routes/users.js';
+import complaintRoutes from './routes/complaints.js';
+import { protect } from './middleware/auth.js';
 import { startCronJobs } from './services/cronScheduler.js';
+import User from './models/User.js';
+import Task from './models/Task.js';
+import QuizAttempt from './models/QuizAttempt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -39,19 +46,36 @@ app.use('/uploads', express.static(uploadsDir));
 
 // ── Health ─────────────────────────────────────────────────────
 app.get('/api/health', (_, res) => {
-    res.json({ success: true, message: 'Focus Enhancer API v4.0', timestamp: new Date().toISOString() });
+    res.json({ success: true, message: 'Focus Enhancer API v4.2', timestamp: new Date().toISOString() });
+});
+
+// ── Public stats (landing page) ────────────────────────────────
+app.get('/api/stats', async (_req, res) => {
+    try {
+        const [users, tasks, quizzes] = await Promise.all([
+            User.countDocuments(),
+            Task.countDocuments(),
+            QuizAttempt.countDocuments(),
+        ]);
+        res.json({ success: true, data: { users, tasks, quizzes } });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
 });
 
 // ── Routes ─────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
-app.use('/api/tasks', taskRoutes);
+app.use('/api/tasks', protect, taskRoutes);
 app.use('/api/announcements', announcementRoutes);
-app.use('/api/quiz', quizRoutes);
-app.use('/api/chat', chatRoutes);
+app.use('/api/quiz', protect, quizRoutes);
+app.use('/api/chat', protect, chatRoutes);
 app.use('/api/theory', theoryRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/direct-chat', protect, directChatRoutes);
+app.use('/api/users', protect, userRoutes);
+app.use('/api/complaints', protect, complaintRoutes);
 
 // ── 404 ────────────────────────────────────────────────────────
 app.use((req, res) => {
@@ -67,7 +91,7 @@ app.use((err, _req, res, _next) => {
 // ── Start ──────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`🚀 Focus Enhancer API v3.0 on http://localhost:${PORT}`);
+    console.log(`🚀 Focus Enhancer API v4.2 on http://localhost:${PORT}`);
     startCronJobs();
 });
 

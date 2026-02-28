@@ -3,6 +3,43 @@ import User from '../models/User.js';
 import TokenLedger from '../models/TokenLedger.js';
 
 /**
+ * GET /api/tasks
+ * Get all tasks for the authenticated user's enrolled courses.
+ * Excludes superseded. Sorted by scheduledDate.
+ */
+export const getMyTasks = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const courseIds = user.enrolledCourses || [];
+        if (courseIds.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+        }
+
+        const filter = {
+            course: { $in: courseIds },
+            status: { $ne: 'superseded' },
+        };
+
+        // Optional filters
+        if (req.query.difficulty) filter.difficulty = req.query.difficulty;
+        if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
+
+        const tasks = await Task.find(filter)
+            .populate('course', 'title courseCode creditWeight durationType')
+            .populate('announcement', 'title eventType eventDate topics')
+            .sort({ scheduledDate: 1, createdAt: -1 })
+            .limit(100);
+
+        return res.status(200).json({ success: true, count: tasks.length, data: tasks });
+    } catch (err) {
+        console.error('❌ getMyTasks:', err.message);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+/**
  * GET /api/tasks/course/:courseId
  * Query params: ?difficulty=easy&type=reading&announcement=ID&date=2026-03-01&pass=1&revision=true
  */
@@ -22,6 +59,19 @@ export const getCourseTasks = async (req, res) => {
             const nextDay = new Date(day);
             nextDay.setDate(nextDay.getDate() + 1);
             filter.scheduledDate = { $gte: day, $lt: nextDay };
+        }
+
+        // Exclude superseded tasks unless explicitly requested
+        if (req.query.includeSuperseded !== 'true') {
+            filter.status = { $ne: 'superseded' };
+        }
+
+        // Filter by assignedTo if userId provided
+        if (req.query.userId) {
+            filter.$or = [
+                { assignedTo: null },
+                { assignedTo: req.query.userId },
+            ];
         }
 
         const tasks = await Task.find(filter)
@@ -47,10 +97,21 @@ export const getTodaysTasks = async (req, res) => {
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const tasks = await Task.find({
+        const filter = {
             course: req.params.courseId,
             scheduledDate: { $gte: today, $lt: tomorrow },
-        })
+            status: { $ne: 'superseded' },
+        };
+
+        // Filter by assignedTo if userId provided
+        if (req.query.userId) {
+            filter.$or = [
+                { assignedTo: null },
+                { assignedTo: req.query.userId },
+            ];
+        }
+
+        const tasks = await Task.find(filter)
             .populate('course', 'title creditWeight durationType')
             .populate('announcement', 'title eventType eventDate topics')
             .sort({ passNumber: 1, difficulty: 1 });
@@ -73,7 +134,20 @@ export const getTodaysTasks = async (req, res) => {
  */
 export const getSchedule = async (req, res) => {
     try {
-        const tasks = await Task.find({ course: req.params.courseId })
+        const filter = {
+            course: req.params.courseId,
+            status: { $ne: 'superseded' },
+        };
+
+        // Filter by assignedTo if userId provided
+        if (req.query.userId) {
+            filter.$or = [
+                { assignedTo: null },
+                { assignedTo: req.query.userId },
+            ];
+        }
+
+        const tasks = await Task.find(filter)
             .populate('announcement', 'title eventType eventDate')
             .sort({ scheduledDate: 1, passNumber: 1 });
 

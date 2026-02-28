@@ -1,8 +1,9 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { generateContent, parseJSON } from './geminiClient.js';
 import Course from '../models/Course.js';
 import Task from '../models/Task.js';
 import Announcement from '../models/Announcement.js';
 import User from '../models/User.js';
+import QuizAttempt from '../models/QuizAttempt.js';
 import { extractChapters, getChapterContent } from './chapterExtractor.js';
 
 /**
@@ -38,35 +39,7 @@ import { extractChapters, getChapterContent } from './chapterExtractor.js';
  */
 
 const BASE_STAKES = { easy: 5, medium: 10, hard: 20 };
-const GEMINI_MODELS = [
-    process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-flash-latest',
-];
 
-async function callGemini(prompt) {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    let lastErr;
-    for (const model of GEMINI_MODELS) {
-        try {
-            const r = await genAI.getGenerativeModel({ model }).generateContent(prompt);
-            console.log(`✅ Fallback gen model: ${model}`);
-            return r.response.text();
-        } catch (err) {
-            if (err.message?.includes('429') || err.message?.includes('quota')) {
-                console.warn(`⚠️  ${model} quota exceeded`);
-                lastErr = err;
-                continue;
-            }
-            throw err;
-        }
-    }
-    throw new Error(`All models quota-limited. ${lastErr?.message}`);
-}
-
-function parseJSON(raw) {
-    return JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim());
-}
 
 // ── Helper: add days to a date ─────────────────────────────────────
 
@@ -200,7 +173,7 @@ export async function generateWeeklyChapterTasks(course) {
         creditWeight: course.creditWeight,
     });
 
-    const raw = await callGemini(prompt);
+    const raw = await generateContent(prompt, 'Weekly fallback');
     const aiTasks = parseJSON(raw);
     if (!Array.isArray(aiTasks)) throw new Error('AI did not return array');
 
@@ -269,6 +242,40 @@ export async function generateWeeklyChapterTasks(course) {
     });
 
     const inserted = await Task.insertMany(tasks);
+
+    // ── Supersede old fallback tasks for the same week ─────────
+    if (inserted.length > 0) {
+        try {
+            const newIds = inserted.map((t) => t._id);
+            const oldFallbacks = await Task.find({
+                course: course._id,
+                _id: { $nin: newIds },
+                source: { $in: ['fallback', 'sunday_revision'] },
+                status: 'pending',
+                scheduledDate: { $gte: monday, $lte: sunday },
+            });
+
+            if (oldFallbacks.length > 0) {
+                const activeAttemptTaskIds = await QuizAttempt.find({
+                    task: { $in: oldFallbacks.map((t) => t._id) },
+                    status: 'mcq_in_progress',
+                }).distinct('task');
+
+                const protectedSet = new Set(activeAttemptTaskIds.map((id) => id.toString()));
+                const toSupersede = oldFallbacks.filter((t) => !protectedSet.has(t._id.toString()));
+
+                if (toSupersede.length > 0) {
+                    await Task.updateMany(
+                        { _id: { $in: toSupersede.map((t) => t._id) } },
+                        { status: 'superseded', supersededBy: announcement._id },
+                    );
+                    console.log(`♻️  Superseded ${toSupersede.length} old fallback tasks`);
+                }
+            }
+        } catch (superErr) {
+            console.error(`⚠️  Fallback supersession failed: ${superErr.message}`);
+        }
+    }
 
     // Advance chapter progress
     course.currentChapterIndex = Math.min(currentIdx + 1, course.chapters.length);
@@ -394,7 +401,7 @@ export async function generateSundayRevisionForCourse(course) {
         allCoveredCount: coveredCount,
     });
 
-    const raw = await callGemini(prompt);
+    const raw = await generateContent(prompt, 'Sunday revision');
     const aiTasks = parseJSON(raw);
     if (!Array.isArray(aiTasks)) throw new Error('AI did not return array');
 

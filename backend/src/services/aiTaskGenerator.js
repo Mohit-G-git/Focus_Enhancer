@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { generateContent, parseJSON } from './geminiClient.js';
 import { extractRelevantContent } from './pdfParser.js';
 
 /**
@@ -28,12 +28,6 @@ const BASE_STAKES = { easy: 5, medium: 10, hard: 20 };
 const DURATION_RANGES = { easy: [1, 2], medium: [2, 3], hard: [3, 4] };
 const MAX_DURATION_HOURS = 4;
 
-const GEMINI_MODELS = [
-    process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-flash-latest',
-];
-
 // ── Utilities ──────────────────────────────────────────────────────
 
 export function calculateUrgency(eventDate) {
@@ -54,31 +48,7 @@ export function getTaskCountForEvent(eventType) {
     return { quiz: 3, assignment: 4, lab: 3, lecture: 2, midterm: 6, final: 8 }[eventType] || 4;
 }
 
-// ── Gemini Fallback ────────────────────────────────────────────────
 
-async function callGemini(genAI, prompt) {
-    let lastErr;
-    for (const model of GEMINI_MODELS) {
-        try {
-            const m = genAI.getGenerativeModel({ model });
-            const r = await m.generateContent(prompt);
-            console.log(`✅ Gemini model: ${model}`);
-            return r.response.text();
-        } catch (err) {
-            if (err.message?.includes('429') || err.message?.includes('quota')) {
-                console.warn(`⚠️  ${model} quota exceeded — fallback...`);
-                lastErr = err;
-                continue;
-            }
-            throw err;
-        }
-    }
-    throw new Error(`All Gemini models quota-limited. ${lastErr?.message}`);
-}
-
-function parseJSON(raw) {
-    return JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/```\s*$/i, '').trim());
-}
 
 // ── Schedule Builder ───────────────────────────────────────────────
 
@@ -211,13 +181,12 @@ export async function generateTasks(input) {
         }
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const prompt = buildDayByDayPrompt({
         courseName, creditWeight, durationType, eventType,
         daySchedule: schedule, bookContent,
     });
 
-    const raw = await callGemini(genAI, prompt);
+    const raw = await generateContent(prompt, 'Task gen');
     const aiDays = parseJSON(raw);
 
     if (!Array.isArray(aiDays)) throw new Error('AI did not return a JSON array');

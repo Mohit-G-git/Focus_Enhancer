@@ -9,6 +9,12 @@ const PTS = { correct: 2, unattempted: -1, wrong: -2 };
 const PASS_THRESHOLD = 8;
 const TIME_LIMIT_MS = 20_000;
 const TIME_GRACE_MS = 2_000;
+const DECAY_BASE = 0.6; // stake multiplier per re-attempt
+
+/** Calculate effective stake for attempt N: max(1, ceil(base * 0.6^(n-1))) */
+function calcDecayedStake(baseStake, attemptNumber) {
+    return Math.max(1, Math.ceil(baseStake * Math.pow(DECAY_BASE, attemptNumber - 1)));
+}
 
 /**
  * POST /api/quiz/:taskId/start
@@ -22,40 +28,82 @@ export const startQuiz = async (req, res) => {
         const task = await Task.findById(taskId).populate('course');
         if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
-        const existing = await QuizAttempt.findOne({ user: userId, task: taskId });
-        if (existing) {
-            return res.status(400).json({
+        // Reject if the task has been superseded by a newer announcement
+        if (task.status === 'superseded') {
+            return res.status(409).json({
                 success: false,
-                message: `Quiz already ${existing.status}. One attempt per task.`,
+                message: 'This task has been superseded by a newer announcement. Check your updated tasks.',
             });
         }
+
+        // Fetch ALL previous attempts for this user+task (sorted newest first)
+        const prevAttempts = await QuizAttempt.find({ user: userId, task: taskId })
+            .sort({ createdAt: -1 });
+
+        const latest = prevAttempts[0] || null;
+
+        // If there's an in-progress attempt, clean it up and let user start fresh
+        if (latest && latest.status === 'mcq_in_progress') {
+            if (!latest.tokenSettled) {
+                const stakeToRefund = latest.effectiveStake || task.tokenStake;
+                const u = await User.findById(userId);
+                u.tokenBalance += stakeToRefund;
+                await TokenLedger.create({
+                    userId: u._id, taskId: task._id, type: 'bonus',
+                    amount: stakeToRefund, balanceAfter: u.tokenBalance,
+                    note: `Refund interrupted quiz stake for: "${task.title}"`,
+                });
+                await u.save();
+            }
+            await QuizAttempt.findOneAndDelete({ _id: latest._id });
+            // Fall through — this counts as the same attempt number
+        } else if (latest) {
+            // There's a finished attempt — check if re-attempt is allowed
+            if (latest.status === 'theory_pending' || latest.status === 'mcq_completed') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Quiz still ${latest.status}. Complete or abandon before re-attempting.`,
+                });
+            }
+            // status = 'failed' or 'submitted' → allow re-attempt
+        }
+
+        // Calculate attempt number
+        // Count only "completed" attempts (not the in-progress one we may have just deleted)
+        const completedCount = prevAttempts.filter(
+            (a) => a.status !== 'mcq_in_progress'
+        ).length;
+        const attemptNumber = completedCount + 1;
+        const effectiveStake = calcDecayedStake(task.tokenStake, attemptNumber);
 
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-        if (user.tokenBalance < task.tokenStake) {
+        if (user.tokenBalance < effectiveStake) {
             return res.status(400).json({
                 success: false,
-                message: `Insufficient tokens. Need ${task.tokenStake}, have ${user.tokenBalance}`,
+                message: `Insufficient tokens. Need ${effectiveStake} (attempt #${attemptNumber}), have ${user.tokenBalance}`,
             });
         }
 
-        // Deduct stake
-        user.tokenBalance -= task.tokenStake;
-        await TokenLedger.create({
-            userId: user._id, taskId: task._id, type: 'stake',
-            amount: -task.tokenStake, balanceAfter: user.tokenBalance,
-            note: `Staked ${task.tokenStake} tokens for: "${task.title}"`,
-        });
-        await user.save();
-
-        // Generate unique MCQs
+        // Generate unique MCQs FIRST (before deducting stake)
+        // If Gemini fails, the user doesn't lose tokens
         const mcqs = await generateMCQs({
             taskTitle: task.title, taskTopic: task.topic,
             courseName: task.course.title, bookPdfPath: task.course.bookPdfPath,
         });
 
+        // Deduct decayed stake
+        user.tokenBalance -= effectiveStake;
+        await TokenLedger.create({
+            userId: user._id, taskId: task._id, type: 'stake',
+            amount: -effectiveStake, balanceAfter: user.tokenBalance,
+            note: `Staked ${effectiveStake} tokens (attempt #${attemptNumber}, decay=${Math.round(Math.pow(DECAY_BASE, attemptNumber - 1) * 100)}%) for: "${task.title}"`,
+        });
+        await user.save();
+
         const attempt = await QuizAttempt.create({
-            user: userId, task: taskId, course: task.course._id, mcqs, mcqStartedAt: new Date(),
+            user: userId, task: taskId, course: task.course._id, mcqs,
+            mcqStartedAt: new Date(), attemptNumber, effectiveStake,
         });
 
         // Return MCQs WITHOUT correct answers
@@ -65,10 +113,19 @@ export const startQuiz = async (req, res) => {
 
         return res.status(201).json({
             success: true,
-            message: `Quiz started! ${task.tokenStake} tokens staked.`,
-            data: { attemptId: attempt._id, mcqs: sanitized, passThreshold: PASS_THRESHOLD, tokenStake: task.tokenStake },
+            message: `Quiz started! ${effectiveStake} tokens staked (attempt #${attemptNumber}).`,
+            data: {
+                attemptId: attempt._id, mcqs: sanitized,
+                passThreshold: PASS_THRESHOLD, tokenStake: effectiveStake,
+                attemptNumber, originalStake: task.tokenStake,
+            },
         });
     } catch (err) {
+        // Handle race condition: if duplicate key error, delete stale and tell user to retry
+        if (err.code === 11000) {
+            await QuizAttempt.deleteOne({ user: req.user?.id || req.body.userId, task: req.params.taskId, status: 'mcq_in_progress' });
+            return res.status(409).json({ success: false, message: 'Cleaned up interrupted quiz. Please try again.' });
+        }
         console.error('❌ startQuiz:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }
@@ -83,7 +140,7 @@ export const answerQuestion = async (req, res) => {
         const userId = req.user?.id || req.body.userId;
         const { questionIndex, selectedAnswer } = req.body;
 
-        const attempt = await QuizAttempt.findOne({ user: userId, task: taskId });
+        const attempt = await QuizAttempt.findOne({ user: userId, task: taskId }).sort({ createdAt: -1 });
         if (!attempt) return res.status(404).json({ success: false, message: 'No quiz attempt found' });
         if (attempt.status !== 'mcq_in_progress') {
             return res.status(400).json({ success: false, message: `Quiz is ${attempt.status}` });
@@ -129,7 +186,7 @@ export const answerQuestion = async (req, res) => {
 export const getMCQResult = async (req, res) => {
     try {
         const userId = req.user?.id || req.query.userId;
-        const attempt = await QuizAttempt.findOne({ user: userId, task: req.params.taskId });
+        const attempt = await QuizAttempt.findOne({ user: userId, task: req.params.taskId }).sort({ createdAt: -1 });
         if (!attempt) return res.status(404).json({ success: false, message: 'No quiz attempt' });
 
         // Auto-fill unanswered as unattempted
@@ -148,12 +205,13 @@ export const getMCQResult = async (req, res) => {
         if (!attempt.tokenSettled) {
             const task = await Task.findById(req.params.taskId);
             const user = await User.findById(userId);
+            const stake = attempt.effectiveStake || task.tokenStake;
 
             // Record MCQ score in user stats
             user.recordMcqScore(score);
 
             if (passed) {
-                const total = task.tokenStake + task.reward;
+                const total = stake + task.reward;
                 user.tokenBalance += total;
                 user.stats.quizzesPassed += 1;
                 user.stats.tokensEarned += task.reward;
@@ -161,15 +219,15 @@ export const getMCQResult = async (req, res) => {
                 await TokenLedger.create({
                     userId: user._id, taskId: task._id, type: 'reward',
                     amount: total, balanceAfter: user.tokenBalance,
-                    note: `MCQ passed (${score}/12). Stake returned + ${task.reward} reward.`,
+                    note: `MCQ passed (${score}/12, attempt #${attempt.attemptNumber}). Stake ${stake} returned + ${task.reward} reward.`,
                 });
             } else {
-                user.stats.tokensLost += task.tokenStake;
-                attempt.tokensAwarded = -task.tokenStake;
+                user.stats.tokensLost += stake;
+                attempt.tokensAwarded = -stake;
                 await TokenLedger.create({
                     userId: user._id, taskId: task._id, type: 'penalty',
                     amount: 0, balanceAfter: user.tokenBalance,
-                    note: `MCQ failed (${score}/12). Stake of ${task.tokenStake} forfeited.`,
+                    note: `MCQ failed (${score}/12, attempt #${attempt.attemptNumber}). Stake of ${stake} forfeited.`,
                 });
             }
 
@@ -218,7 +276,7 @@ export const getMCQResult = async (req, res) => {
 export const getTheoryQuestions = async (req, res) => {
     try {
         const userId = req.user?.id || req.query.userId;
-        const attempt = await QuizAttempt.findOne({ user: userId, task: req.params.taskId });
+        const attempt = await QuizAttempt.findOne({ user: userId, task: req.params.taskId }).sort({ createdAt: -1 });
         if (!attempt) return res.status(404).json({ success: false, message: 'No quiz attempt' });
         if (!attempt.mcqPassed) {
             return res.status(403).json({ success: false, message: 'MCQ not passed. Theory unavailable.' });
@@ -253,13 +311,17 @@ export const submitTheory = async (req, res) => {
         const userId = req.user?.id || req.body.userId;
         if (!req.file) return res.status(400).json({ success: false, message: 'PDF required (field: solutions)' });
 
-        const attempt = await QuizAttempt.findOne({ user: userId, task: req.params.taskId });
+        const attempt = await QuizAttempt.findOne({ user: userId, task: req.params.taskId }).sort({ createdAt: -1 });
         if (!attempt) return res.status(404).json({ success: false, message: 'No quiz attempt' });
         if (attempt.status !== 'theory_pending') {
             return res.status(400).json({ success: false, message: `Cannot submit. Status: ${attempt.status}` });
         }
 
-        attempt.theorySubmissionPath = req.file.path;
+        // Store relative path so it can be served via /uploads/...
+        const relPath = req.file.path.includes('uploads/')
+            ? 'uploads/' + req.file.path.split('uploads/').pop()
+            : req.file.path;
+        attempt.theorySubmissionPath = relPath;
         attempt.theorySubmittedAt = new Date();
         attempt.status = 'submitted';
         await attempt.save();
@@ -271,6 +333,52 @@ export const submitTheory = async (req, res) => {
         });
     } catch (err) {
         console.error('❌ submitTheory:', err.message);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * GET /api/quiz/:taskId/attempt-info
+ * Returns attempt history and what the next attempt would cost.
+ */
+export const getAttemptInfo = async (req, res) => {
+    try {
+        const userId = req.user?.id || req.query.userId;
+        const task = await Task.findById(req.params.taskId);
+        if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+
+        const attempts = await QuizAttempt.find({ user: userId, task: req.params.taskId })
+            .sort({ createdAt: -1 })
+            .select('attemptNumber effectiveStake mcqScore mcqPassed status createdAt');
+
+        const completedCount = attempts.filter((a) => a.status !== 'mcq_in_progress').length;
+        const nextAttemptNumber = completedCount + 1;
+        const nextStake = calcDecayedStake(task.tokenStake, nextAttemptNumber);
+        const latest = attempts[0] || null;
+        const canRetry = !latest || ['failed', 'submitted'].includes(latest.status);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                totalAttempts: completedCount,
+                nextAttemptNumber,
+                originalStake: task.tokenStake,
+                nextStake,
+                decayRate: DECAY_BASE,
+                canRetry,
+                latestStatus: latest?.status || null,
+                history: attempts.map((a) => ({
+                    attemptNumber: a.attemptNumber,
+                    stake: a.effectiveStake,
+                    score: a.mcqScore,
+                    passed: a.mcqPassed,
+                    status: a.status,
+                    date: a.createdAt,
+                })),
+            },
+        });
+    } catch (err) {
+        console.error('❌ getAttemptInfo:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }
 };

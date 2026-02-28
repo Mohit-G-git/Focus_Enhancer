@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { chatCompletion } from './geminiClient.js';
 import User from '../models/User.js';
 import Course from '../models/Course.js';
 import Task from '../models/Task.js';
@@ -37,51 +37,7 @@ import Conversation from '../models/Conversation.js';
  * ============================================================
  */
 
-const GEMINI_MODELS = [
-    process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
-    'gemini-2.0-flash',
-    'gemini-flash-latest',
-];
-
 const MAX_HISTORY_TOKENS = 30; // max messages to send as context
-
-// ── Gemini Call with Fallback ──────────────────────────────────────
-
-async function callGemini(systemPrompt, chatHistory) {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    let lastErr;
-
-    for (const modelName of GEMINI_MODELS) {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: modelName,
-                systemInstruction: systemPrompt,
-            });
-
-            const chat = model.startChat({
-                history: chatHistory.map((m) => ({
-                    role: m.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: m.content }],
-                })),
-            });
-
-            // The last message in history is the current user message
-            // We already included it in history, so we send a continuation prompt
-            const lastUserMsg = chatHistory[chatHistory.length - 1];
-            const result = await chat.sendMessage(lastUserMsg.content);
-            console.log(`✅ Chatbot model: ${modelName}`);
-            return result.response.text();
-        } catch (err) {
-            if (err.message?.includes('429') || err.message?.includes('quota')) {
-                console.warn(`⚠️  ${modelName} quota exceeded`);
-                lastErr = err;
-                continue;
-            }
-            throw err;
-        }
-    }
-    throw new Error(`All Gemini models quota-limited. ${lastErr?.message}`);
-}
 
 // ── Student Context Builder ────────────────────────────────────────
 
@@ -384,8 +340,8 @@ export async function chat(userId, message, conversationId = null) {
     // 6. Build system prompt with live student data
     const systemPrompt = buildSystemPrompt(studentContext, conversation.category, mood);
 
-    // 7. Call Gemini
-    const response = await callGemini(systemPrompt, chatHistory);
+    // 7. Call Gemini (shared client with 10s throttle)
+    const response = await chatCompletion(systemPrompt, chatHistory, 'Chatbot');
 
     // 8. Save assistant response
     conversation.messages.push({
@@ -464,7 +420,7 @@ export async function deleteConversation(userId, conversationId) {
     const conversation = await Conversation.findOneAndUpdate(
         { _id: conversationId, user: userId },
         { isActive: false },
-        { new: true }
+        { returnDocument: 'after' }
     );
     if (!conversation) throw new Error('Conversation not found');
     return { deleted: true };

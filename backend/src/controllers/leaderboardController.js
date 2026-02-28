@@ -96,6 +96,7 @@ export const getCourseLeaderboard = async (req, res) => {
             name: p.user?.name,
             studentId: p.user?.studentId || null,
             department: p.user?.department || null,
+            tokenBalance: p.user?.tokenBalance ?? 0,
             reputation: p.user?.reputation || 0,
             proficiencyScore: p.proficiencyScore,
             metrics: {

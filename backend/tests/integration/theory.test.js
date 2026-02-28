@@ -32,7 +32,7 @@ const oid = () => new mongoose.Types.ObjectId();
 /* ── Seed: user + course + task + passed quiz attempt ───────── */
 async function seedTheory() {
     const user = await User.create({
-        name: 'Theory Student', email: `theory${Date.now()}@test.edu`,
+        name: 'Theory Student', email: `theory${Date.now()}@iitj.ac.in`,
         passwordHash: 'password123', tokenBalance: 100,
     });
     const course = await Course.create({
@@ -112,7 +112,7 @@ describe('Theory Routes', () => {
 
         it('rejects if MCQ not passed', async () => {
             const user = await User.create({
-                name: 'Fail Student', email: `fail${Date.now()}@test.edu`,
+                name: 'Fail Student', email: `fail${Date.now()}@iitj.ac.in`,
                 passwordHash: 'password123', tokenBalance: 100,
             });
             const course = await Course.create({
