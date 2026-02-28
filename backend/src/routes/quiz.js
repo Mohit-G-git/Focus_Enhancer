@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { startQuiz, answerQuestion, getMCQResult, getTheoryQuestions, submitTheory } from '../controllers/quizController.js';
 import { answerRules, validate } from '../middleware/validate.js';
+import { protect } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -17,10 +18,10 @@ const upload = multer({
     limits: { fileSize: 20 * 1024 * 1024 },
 });
 
-router.post('/:taskId/start', startQuiz);
-router.post('/:taskId/answer', answerRules, validate, answerQuestion);
-router.get('/:taskId/mcq-result', getMCQResult);
-router.get('/:taskId/theory', getTheoryQuestions);
-router.post('/:taskId/submit-theory', upload.single('solutions'), submitTheory);
+router.post('/:taskId/start', protect, startQuiz);
+router.post('/:taskId/answer', protect, answerRules, validate, answerQuestion);
+router.get('/:taskId/mcq-result', protect, getMCQResult);
+router.get('/:taskId/theory', protect, getTheoryQuestions);
+router.post('/:taskId/submit-theory', protect, upload.single('solutions'), submitTheory);
 
 export default router;
