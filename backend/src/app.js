@@ -1,0 +1,74 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+import connectDB from './config/db.js';
+import authRoutes from './routes/auth.js';
+import taskRoutes from './routes/tasks.js';
+import announcementRoutes from './routes/announcements.js';
+import quizRoutes from './routes/quiz.js';
+import chatRoutes from './routes/chat.js';
+import courseRoutes from './routes/courses.js';
+import theoryRoutes from './routes/theory.js';
+import reviewRoutes from './routes/reviews.js';
+import leaderboardRoutes from './routes/leaderboard.js';
+import { startCronJobs } from './services/cronScheduler.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+
+// ── Ensure upload directory exists ─────────────────────────────
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// ── MongoDB ────────────────────────────────────────────────────
+connectDB();
+
+// ── Middleware ──────────────────────────────────────────────────
+app.use(helmet());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// ── Static file serving (uploaded PDFs) ────────────────────────
+app.use('/uploads', express.static(uploadsDir));
+
+// ── Health ─────────────────────────────────────────────────────
+app.get('/api/health', (_, res) => {
+    res.json({ success: true, message: 'Focus Enhancer API v4.0', timestamp: new Date().toISOString() });
+});
+
+// ── Routes ─────────────────────────────────────────────────────
+app.use('/api/auth', authRoutes);
+app.use('/api/courses', courseRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/announcements', announcementRoutes);
+app.use('/api/quiz', quizRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/theory', theoryRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+
+// ── 404 ────────────────────────────────────────────────────────
+app.use((req, res) => {
+    res.status(404).json({ success: false, message: `${req.method} ${req.originalUrl} not found` });
+});
+
+// ── Error Handler ──────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+    console.error('❌', err.stack);
+    res.status(err.status || 500).json({ success: false, message: err.message || 'Internal server error' });
+});
+
+// ── Start ──────────────────────────────────────────────────────
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+    console.log(`🚀 Focus Enhancer API v3.0 on http://localhost:${PORT}`);
+    startCronJobs();
+});
+
+export default app;
